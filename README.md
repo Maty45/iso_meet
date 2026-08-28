@@ -68,6 +68,13 @@ Las salas van arriba (`maxZ < 15`) o abajo (`minZ > 23`) del pasillo central.
 
 Ver `PLAN.md` §15 para detalles y limitaciones WebSocket.
 
+## Assets
+
+Modelos 3D del [Furniture Kit de Kenney](https://kenney.nl/assets/furniture-kit) (CC0).
+Están en `client/public/models/` — `kenney/LICENSE.txt` tiene la licencia.
+Para sumar un mueble: copiar el `.glb` ahí y agregar una línea en
+`client/src/assets/catalog.ts`; el test `catalog.test.ts` verifica que el archivo exista.
+
 ## Stack
 
 Vite + TypeScript + Three.js + Socket.IO v4 + Express + Zod + Biome

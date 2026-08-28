@@ -36,8 +36,10 @@ const btnReconnect = document.getElementById(
 
 // Three setup — gráficos mejorados (sombras suaves + fog + materiales Standard)
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87c5f5);
-scene.fog = new THREE.Fog(0x87c5f5, 45, 90);
+// Fondo gris neutro y luz difusa: la escena tiene que leerse como una lámina
+// isométrica de interiores, no como un exterior con cielo.
+scene.background = new THREE.Color(0xd9dde2);
+scene.fog = new THREE.Fog(0xd9dde2, 55, 105);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -50,9 +52,9 @@ renderer.toneMappingExposure = 1.05;
 const cameraCtrl = new IsoCamera(window.innerWidth / window.innerHeight);
 
 // luces — hemisferio cálido + sol direccional suave + puntos cálidos por sala (estilo imagen)
-scene.add(new THREE.HemisphereLight(0xfff6e5, 0x8ecae6, 0.85));
-scene.add(new THREE.AmbientLight(0xfff0d6, 0.35));
-const dir = new THREE.DirectionalLight(0xfff4e0, 1.15);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xc8cdd4, 0.75));
+scene.add(new THREE.AmbientLight(0xfdfbf7, 0.45));
+const dir = new THREE.DirectionalLight(0xfff8ee, 1.0);
 dir.position.set(30, 55, 18);
 dir.castShadow = true;
 dir.shadow.mapSize.set(2048, 2048);
@@ -71,7 +73,7 @@ function rebuildOfficeLights(offices: { bounds: { minX: number; maxX: number; mi
   for (const pl of officeLights) scene.remove(pl);
   officeLights = [];
   for (const o of offices) {
-    const pl = new THREE.PointLight(0xfff2c8, 18, 14, 2);
+    const pl = new THREE.PointLight(0xfff3d6, 14, 13, 2);
     pl.position.set((o.bounds.minX + o.bounds.maxX) / 2, 3.2, (o.bounds.minZ + o.bounds.maxZ) / 2);
     pl.castShadow = false;
     scene.add(pl);
@@ -80,7 +82,9 @@ function rebuildOfficeLights(offices: { bounds: { minX: number; maxX: number; mi
 }
 
 // FASE 8: preload de los 5 assets más usados (no bloquea, cachea para 20 sillas = 1 fetch)
-assetManager.preload(['chair', 'desk', 'plant', 'table', 'bookshelf', 'player']).catch(() => {});
+assetManager
+  .preload(['chair_office', 'desk_office', 'monitor', 'keyboard', 'plant_big', 'rug_square', 'lamp_ceiling', 'credenza', 'player'])
+  .catch(() => {});
 
 // world (se crea tras join o fallback offline)
 let world: World | null = null;

@@ -38,13 +38,16 @@ export class World {
     const getMat = (type: BlockType) => {
       const key = type;
       if (matCache.has(key)) return matCache.get(key)!;
-      const isTransparent = type === 'glass' || type === 'monitor' || type === 'plant';
+      // wall_front = muro que mira a la cámara: translúcido para ver adentro de la sala.
+      const opacity =
+        type === 'glass' ? 0.3 : type === 'wall_front' ? 0.22 : type === 'plant' ? 0.9 : 1;
       const m = new THREE.MeshStandardMaterial({
         color: BLOCK_COLORS[type],
-        roughness: 0.85,
+        roughness: type === 'glass' ? 0.15 : 0.85,
         metalness: 0.02,
-        transparent: isTransparent,
-        opacity: isTransparent ? (type === 'glass' ? 0.32 : 0.9) : 1,
+        transparent: opacity < 1,
+        opacity,
+        depthWrite: opacity > 0.5,
       });
       matCache.set(key, m);
       return m;
@@ -78,7 +81,7 @@ export class World {
     for (const [type, list] of byType) {
       const mat = getMat(type);
       const inst = new THREE.InstancedMesh(geo, mat, list.length);
-      inst.castShadow = type !== 'glass';
+      inst.castShadow = type !== 'glass' && type !== 'wall_front';
       inst.receiveShadow = true;
       let idx = 0;
       for (const b of list) {
@@ -92,58 +95,68 @@ export class World {
       this.instancedMeshes.push(inst);
     }
 
-    // Suelo de oficinas con colores estilo imagen (tonos pastel por sala)
-    if (this.config.offices?.length) {
-      // El tono del piso deriva del color de pared de la sala: una sala nueva no pide tocar código.
-      const { wallTypeOf } = buildWorldBlocks(this.config.offices);
-      for (const office of this.config.offices) {
-        const wallColor = new THREE.Color(
-          BLOCK_COLORS[wallTypeOf[office.id] ?? 'wood'],
-        );
-        const floorColor = wallColor.clone().lerp(new THREE.Color(0xffffff), 0.62);
-        const { minX, maxX, minZ, maxZ } = office.bounds;
-        const w = maxX - minX;
-        const d = maxZ - minZ;
-        const plane = new THREE.Mesh(
-          new THREE.PlaneGeometry(w, d),
-          new THREE.MeshLambertMaterial({ color: floorColor }),
-        );
-        plane.rotation.x = -Math.PI / 2;
-        plane.position.set(minX + w / 2, 1.02, minZ + d / 2);
-        // @ts-ignore receiveShadow
-        plane.receiveShadow = true;
-        this.group.add(plane);
-
-        // alfombra interior: rompe el piso plano de una sola pieza
-        const rug = new THREE.Mesh(
-          new THREE.PlaneGeometry(w * 0.55, d * 0.55),
-          new THREE.MeshLambertMaterial({
-            color: wallColor.clone().lerp(new THREE.Color(0xffffff), 0.35),
-          }),
-        );
-        rug.rotation.x = -Math.PI / 2;
-        rug.position.set(minX + w / 2, 1.03, minZ + d / 2);
-        rug.receiveShadow = true;
-        this.group.add(rug);
-
-        const edgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.05, d));
-        const edge = new THREE.LineSegments(
-          edgeGeo,
-          new THREE.LineBasicMaterial({ color: wallColor }),
-        );
-        edge.position.set(minX + w / 2, 1.04, minZ + d / 2);
-        this.group.add(edge);
-      }
-    }
+    this.addFloor();
+    this.addWallTrim();
 
     this.addDetailedFurniture();
     this.addDoorSigns();
   }
 
+  /** Piso de baldosas blancas para todo el edificio (una sola textura, un solo plano). */
+  private addFloor() {
+    const { width, depth } = this.config.size;
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, depth),
+      new THREE.MeshStandardMaterial({
+        map: tileTexture(width, depth),
+        roughness: 0.55,
+        metalness: 0.02,
+      }),
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.set(width / 2, 1.02, depth / 2);
+    plane.receiveShadow = true;
+    this.group.add(plane);
+  }
+
+  /** Zócalo y cornisa blancos por sala: es lo que saca el aspecto de caja de bloques. */
+  private addWallTrim() {
+    if (!this.config.offices?.length) return;
+    const mat = new THREE.MeshStandardMaterial({ color: 0xf7f7f5, roughness: 0.6 });
+    for (const office of this.config.offices) {
+      const { minX, maxX, minZ, maxZ } = office.bounds;
+      // interior útil: las paredes ocupan su propia celda
+      const x0 = minX + 1;
+      const z0 = minZ + 1;
+      const w = maxX - x0;
+      const d = maxZ - z0;
+      const strip = (sw: number, sh: number, sd: number, x: number, y: number, z: number) => {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), mat);
+        m.position.set(x, y, z);
+        m.receiveShadow = true;
+        this.group.add(m);
+      };
+      for (const [y, h] of [[1.09, 0.18], [3.88, 0.24]] as const) {
+        strip(w, h, 0.1, x0 + w / 2, y, z0 + 0.02); // norte
+        strip(w, h, 0.1, x0 + w / 2, y, maxZ - 0.02); // sur
+        strip(0.1, h, d, x0 + 0.02, y, z0 + d / 2); // oeste
+        strip(0.1, h, d, maxX - 0.02, y, z0 + d / 2); // este
+      }
+    }
+  }
+
   private addDetailedFurniture() {
     if (!this.config.offices?.length) return;
     // Híbrido: intenta GLB vía AssetManager, fallback a caja detallada (todo pasa por el catálogo)
-    const addHybrid = (type: string, x: number, y: number, z: number, rotY = 0, scale?: number) => {
+    const addHybrid = (
+      type: string,
+      x: number,
+      y: number,
+      z: number,
+      rotY = 0,
+      scale?: number,
+      tint?: Record<string, number>,
+    ) => {
       const placeholder = createWorldObjectSync(
         { type, position: [x, y, z], rotationY: rotY, scale },
         (glb) => {
@@ -151,6 +164,7 @@ export class World {
           glb.position.set(x, y, z);
           glb.rotation.y = rotY;
           if (scale !== undefined) glb.scale.multiplyScalar(scale);
+          if (tint) applyTint(glb, tint);
           this.group.add(glb);
         },
       );
@@ -165,11 +179,23 @@ export class World {
 
     // Muebles por sala: posiciones relativas al centro (ver officeLayout.ts).
     // Agregar una sala en config/offices.json alcanza para que se amueble sola.
+    const { wallTypeOf } = buildWorldBlocks(this.config.offices);
     for (const office of this.config.offices) {
       const c = meetingSpot(office.bounds);
+      // El acento de la sala sale de su color de pared: alfombras y tapizados lo toman.
+      const accent = accentOf(BLOCK_COLORS[wallTypeOf[office.id] ?? 'wall_pink']);
       this.meetingSpots.set(office.id, new THREE.Vector3(c.x, FLOOR_Y, c.z));
-      for (const p of officeProps(themeFor(office.id), isFlipped(office.bounds))) {
-        addHybrid(p.type, c.x + p.dx, FLOOR_Y + p.dy, c.z + p.dz, p.rotY ?? 0, p.scale);
+      const flip = isFlipped(office.bounds);
+      for (const p of officeProps(themeFor(office.id), flip, accent)) {
+        addHybrid(
+          p.type,
+          c.x + p.dx,
+          FLOOR_Y + p.dy,
+          c.z + p.dz,
+          p.rotY ?? 0,
+          p.scale,
+          p.tint,
+        );
       }
     }
     // decoración del pasillo central
@@ -251,3 +277,47 @@ const OFFLINE_OFFICES = [
   { id: 'office-4', name: 'Sala de Juegos', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 24, maxZ: 36 } },
   { id: 'office-5', name: 'Lounge', bounds: { minX: 17, maxX: 29, minY: 0, maxY: 6, minZ: 24, maxZ: 36 } },
 ];
+
+/**
+ * Baldosas blancas con junta gris: un canvas de una baldosa repetido por unidad de mundo.
+ * Evita bajar una textura y da el piso de la referencia.
+ */
+function tileTexture(repeatX: number, repeatZ: number): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#f3f4f6';
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.strokeStyle = '#d3d7dd';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatZ);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** Recolorea materiales del GLB por nombre. AssetManager clona los materiales por
+ * instancia, así que teñir uno no afecta a los demás muebles del mismo modelo. */
+function applyTint(group: THREE.Group, tint: Record<string, number>) {
+  group.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      const hex = tint[m?.name ?? ''];
+      if (hex !== undefined) (m as THREE.MeshStandardMaterial).color?.setHex(hex);
+    }
+  });
+}
+
+/** Sube la saturación del color de pared: la pared es apagada, el textil no. */
+function accentOf(wallColor: number): number {
+  const c = new THREE.Color(wallColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  c.setHSL(hsl.h, Math.min(1, hsl.s * 2.4), Math.max(0.42, hsl.l - 0.22));
+  return c.getHex();
+}

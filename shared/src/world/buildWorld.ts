@@ -3,11 +3,12 @@ import type { Office } from '../types/office.js';
 import type { BlockData, BlockType } from '../types/world.js';
 
 // Color de pared por sala, por índice (no por id): agregar una sala no pide tocar código.
+// Tipos propios por sala: reusar 'wood'/'shelf' daba dos salas del mismo color.
 export const WALL_TYPES: BlockType[] = [
   'wall_pink',
-  'wood',
+  'wall_sand',
   'wall_purple',
-  'shelf',
+  'wall_sage',
   'wall_teal',
 ];
 
@@ -28,7 +29,7 @@ export interface WorldGeometry {
 
 /**
  * Única fuente de verdad de la geometría del mundo: perímetro, muros de cada sala,
- * puertas que dan al pasillo central y ventanas en el muro opuesto.
+ * puertas que dan al pasillo central y ventanas.
  * La usan el server (world autoritativo) y el cliente (modo offline) — si divergieran,
  * el mundo offline dejaría de coincidir con el online.
  * Los muebles NO son bloques: los pone el cliente con los GLB del catálogo.
@@ -72,10 +73,7 @@ export function buildWorldBlocks(offices: Office[]): WorldGeometry {
     const centerZ = (minZ + maxZ) / 2;
     const above = centerZ < CORRIDOR_Z.min;
     const doorWallZ = above ? maxZ : minZ;
-    const windowWallZ = above ? minZ : maxZ;
-    // vano de 2 bloques centrado
-    const doorX = Math.floor((minX + maxX) / 2);
-    const winX = minX + 2;
+    const doorX = Math.floor((minX + maxX) / 2); // vano en doorX y doorX+1
 
     doors.push({
       officeId: office.id,
@@ -84,8 +82,20 @@ export function buildWorldBlocks(offices: Office[]): WorldGeometry {
       facing: above ? 1 : -1,
     });
 
+    // Ventanas: solo en los muros opacos (minZ y minX). Los muros maxX/maxZ miran a la
+    // cámara y van translúcidos, así se ve adentro de la sala como en una lámina isométrica.
+    const zWindows = [minX + 2, maxX - 3];
+    const xWindows = [minZ + 3, maxZ - 4];
+    const nearDoor = (x: number) => doorWallZ === minZ && Math.abs(x - doorX) <= 2;
+    const isZWindow = (x: number, y: number) =>
+      y >= 2 && !nearDoor(x) && zWindows.some((w) => x === w || x === w + 1);
+    const isXWindow = (z: number, y: number) =>
+      y >= 2 && xWindows.some((w) => z === w || z === w + 1);
+
     for (let y = 1; y <= 3; y++) {
+      // muros norte (minZ, opaco) y sur (maxZ, hacia la cámara)
       for (const wallZ of [minZ, maxZ]) {
+        const near = wallZ === maxZ;
         for (let x = minX; x <= maxX; x++) {
           const inDoorGap =
             wallZ === doorWallZ && y <= 2 && (x === doorX || x === doorX + 1);
@@ -99,17 +109,17 @@ export function buildWorldBlocks(offices: Office[]): WorldGeometry {
             push(x, y, wallZ, 'trim');
             continue;
           }
-          const isWindow =
-            wallZ === windowWallZ &&
-            y === 2 &&
-            (x === winX || x === winX + 1);
-          push(x, y, wallZ, isWindow ? 'glass' : wall);
+          if (!near && wallZ === minZ && isZWindow(x, y)) {
+            push(x, y, wallZ, 'glass');
+            continue;
+          }
+          push(x, y, wallZ, near ? 'wall_front' : wall);
         }
       }
       // muros este/oeste (evita esquinas duplicadas)
       for (let z = minZ + 1; z <= maxZ - 1; z++) {
-        push(minX, y, z, wall);
-        push(maxX, y, z, wall);
+        push(minX, y, z, isXWindow(z, y) ? 'glass' : wall);
+        push(maxX, y, z, 'wall_front');
       }
     }
   });
