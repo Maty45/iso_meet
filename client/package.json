@@ -1,0 +1,21 @@
+{
+  "name": "@iso-meet/client",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173 --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@iso-meet/shared": "*",
+    "socket.io-client": "^4.8.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

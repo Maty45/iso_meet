@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IsoMeet — Oficina virtual isométrica</title>
+  <meta name="description" content="Minecraft isométrico + oficina virtual + Google Meet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="hud-top">
+      <span id="app-title">⛏️ IsoMeet</span>
+      <span id="player-count"></span>
+    </div>
+    <div id="hud-bottom">
+      <span>WASD — Moverse · Espacio — Saltar · Rueda — Zoom</span>
+    </div>
+  </div>
+
+  <!-- Join screen -->
+  <div id="join-screen" class="overlay">
+    <div class="card">
+      <h1>⛏️ IsoMeet</h1>
+      <p class="subtitle">Oficina virtual isométrica</p>
+      <label for="name-input">¿Cómo te llamas?</label>
+      <input id="name-input" type="text" maxlength="16" placeholder="Matías" autocomplete="off" spellcheck="false" />
+      <button id="btn-enter" class="btn primary">Entrar al mundo</button>
+      <p id="join-error" class="error hidden"></p>
+      <p id="join-status" class="muted"></p>
+    </div>
+  </div>
+
+  <!-- Office panel -->
+  <div id="office-panel" class="hidden">
+    <div class="card">
+      <h2 id="office-name">Sala</h2>
+      <p>Reunión disponible</p>
+      <p id="office-occupants" class="muted"></p>
+      <button id="btn-meet" class="btn primary">Entrar a reunión</button>
+      <button id="btn-leave-office" class="btn">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- Disconnect modal -->
+  <div id="disconnect-modal" class="overlay hidden">
+    <div class="card">
+      <h2>Desconectado</h2>
+      <p>Se perdió la conexión con el servidor.</p>
+      <button id="btn-reconnect" class="btn primary">Reconectar</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

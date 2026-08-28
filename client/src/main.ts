@@ -1,0 +1,336 @@
+import type { Player } from '@iso-meet/shared';
+import { sanitizeName } from '@iso-meet/shared';
+import * as THREE from 'three';
+import { createSocket } from './multiplayer/network.js';
+import { PlayerManager } from './multiplayer/playerManager.js';
+import { OfficeManager } from './offices/officeManager.js';
+import { Input } from './player/input.js';
+import { Physics } from './player/physics.js';
+import { PlayerVisual } from './player/PlayerVisual.js';
+import { IsoCamera } from './rendering/camera.js';
+import { World, createDefaultWorldConfig } from './world/world.js';
+import { assetManager } from './assets/AssetManager.js';
+
+const canvas = document.getElementById('game') as HTMLCanvasElement;
+const joinScreen = document.getElementById('join-screen') as HTMLDivElement;
+const nameInput = document.getElementById('name-input') as HTMLInputElement;
+const btnEnter = document.getElementById('btn-enter') as HTMLButtonElement;
+const joinError = document.getElementById('join-error') as HTMLParagraphElement;
+const officePanel = document.getElementById('office-panel') as HTMLDivElement;
+const officeNameEl = document.getElementById('office-name') as HTMLElement;
+const officeOccupantsEl = document.getElementById(
+  'office-occupants',
+) as HTMLElement;
+const btnMeet = document.getElementById('btn-meet') as HTMLButtonElement;
+const btnLeaveOffice = document.getElementById(
+  'btn-leave-office',
+) as HTMLButtonElement;
+const playerCountEl = document.getElementById('player-count') as HTMLElement;
+const disconnectModal = document.getElementById(
+  'disconnect-modal',
+) as HTMLDivElement;
+const btnReconnect = document.getElementById(
+  'btn-reconnect',
+) as HTMLButtonElement;
+
+// Three setup — gráficos mejorados (sombras suaves + fog + materiales Standard)
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87c5f5);
+scene.fog = new THREE.Fog(0x87c5f5, 45, 90);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const cameraCtrl = new IsoCamera(window.innerWidth / window.innerHeight);
+
+// luces — hemisferio cálido + sol direccional suave + puntos cálidos por sala (estilo imagen)
+scene.add(new THREE.HemisphereLight(0xfff6e5, 0x8ecae6, 0.85));
+scene.add(new THREE.AmbientLight(0xfff0d6, 0.35));
+const dir = new THREE.DirectionalLight(0xfff4e0, 1.15);
+dir.position.set(30, 55, 18);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048, 2048);
+dir.shadow.camera.near = 1;
+dir.shadow.camera.far = 120;
+dir.shadow.camera.left = -30;
+dir.shadow.camera.right = 30;
+dir.shadow.camera.top = 30;
+dir.shadow.camera.bottom = -30;
+dir.shadow.bias = -0.0005;
+scene.add(dir);
+// luces puntuales cálidas por oficina (imitan lámparas colgantes de la imagen)
+const officeLights: THREE.PointLight[] = [];
+for (const pos of [[8, 3.2, 8], [24, 3.2, 8], [8, 3.2, 24], [24, 3.2, 24]] as const) {
+  const pl = new THREE.PointLight(0xfff2c8, 18, 14, 2);
+  pl.position.set(pos[0], pos[1], pos[2]);
+  pl.castShadow = false;
+  scene.add(pl);
+  officeLights.push(pl);
+}
+
+// FASE 8: preload de los 5 assets más usados (no bloquea, cachea para 20 sillas = 1 fetch)
+assetManager.preload(['chair', 'desk', 'plant', 'table', 'bookshelf', 'player']).catch(() => {});
+
+// world (se crea tras join o fallback offline)
+let world: World | null = null;
+let worldConfig: any = createDefaultWorldConfig();
+const officeMgr = new OfficeManager();
+
+// player local — separación STATE (physics/Player) vs VISUAL (PlayerVisual GLB)
+const input = new Input();
+const physics = new Physics();
+let localVisual: PlayerVisual | null = null;
+let localPlayer: Player | null = null;
+let myColor = 0x4a90e2;
+
+// multiplayer
+const socket = createSocket();
+const playerMgr = new PlayerManager(scene);
+const officePresence = new Map<string, string | null>(); // playerId -> officeId
+
+let joined = false;
+let lastSend = 0;
+
+function createWorld(cfg: any) {
+  if (world) {
+    world.dispose();
+  }
+  world = new World(cfg, scene);
+  officeMgr.setOffices(cfg.offices ?? []);
+}
+
+createWorld(worldConfig);
+
+// local avatar — ahora low-poly GLB con fallback a cajas
+function spawnLocal(p: Player) {
+  localPlayer = p;
+  physics.pos.set(p.position.x, p.position.y, p.position.z);
+  myColor = p.color;
+  localVisual = new PlayerVisual({ name: p.name, color: p.color, position: physics.pos.clone() });
+  scene.add(localVisual.group);
+  playerCountEl.textContent = `👥 ${1 + playerMgr.remotes.size}`;
+}
+
+// office UI helpers
+function showOfficePanel(office: any, count: number) {
+  officeNameEl.textContent = office.name;
+  officeOccupantsEl.textContent = `👥 ${count} persona(s) aquí`;
+  // @ts-ignore dataset
+  btnMeet.dataset.url = office.meetingUrl;
+  officePanel.classList.remove('hidden');
+}
+function hideOfficePanel() {
+  officePanel.classList.add('hidden');
+}
+
+btnMeet.addEventListener('click', () => {
+  const url = (btnMeet as any).dataset.url as string;
+  console.log('[meet] click url=', url);
+  if (!url) {
+    alert('No hay URL configurada para esta sala');
+    return;
+  }
+  // debe ser sincrónico con el click para evitar popup blocker
+  const win = window.open(url, '_blank', 'noopener');
+  if (!win || win.closed || typeof win.closed === 'undefined') {
+    // fallback: crear <a> visible en DOM
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+});
+btnLeaveOffice.addEventListener('click', hideOfficePanel);
+
+// join flow
+function doJoin() {
+  const raw = nameInput.value.trim();
+  const name = sanitizeName(raw || 'guest');
+  if (name.length < 1 || name.length > 16) {
+    joinError.textContent = 'Nombre 1-16 caracteres';
+    joinError.classList.remove('hidden');
+    return;
+  }
+  joinError.classList.add('hidden');
+  const status = document.getElementById('join-status') as HTMLElement;
+  status.textContent = 'Conectando...';
+  socket.emit('player:join', { name });
+}
+btnEnter.addEventListener('click', doJoin);
+nameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doJoin();
+});
+
+// socket events
+socket.on('connect', () => {
+  disconnectModal.classList.add('hidden');
+  const status = document.getElementById('join-status') as HTMLElement;
+  if (joined) status.textContent = '';
+});
+
+socket.on('disconnect', () => {
+  disconnectModal.classList.remove('hidden');
+});
+
+btnReconnect.addEventListener('click', () => socket.connect());
+
+socket.on('player:joined' as any, (data: any) => {
+  joined = true;
+  joinScreen.classList.add('hidden');
+  worldConfig = data.world ?? createDefaultWorldConfig();
+  // offices vienen dentro de world en nuestro server
+  const offices = data.offices ?? worldConfig.offices ?? [];
+  worldConfig.offices = offices;
+  createWorld(worldConfig);
+  spawnLocal(data.player);
+  officePresence.set(data.player.id, data.player.currentOfficeId ?? null);
+  for (const p of data.players as Player[]) {
+    if (p.id === data.player.id) continue;
+    playerMgr.add(p);
+    officePresence.set(p.id, p.currentOfficeId ?? null);
+  }
+  playerCountEl.textContent = `👥 ${1 + playerMgr.remotes.size}`;
+});
+
+socket.on('player:joinedOther' as any, (data: any) => {
+  playerMgr.add(data.player);
+  officePresence.set(data.player.id, data.player.currentOfficeId ?? null);
+  playerCountEl.textContent = `👥 ${playerMgr.remotes.size + (joined ? 1 : 0)}`;
+});
+
+socket.on('player:left' as any, ({ playerId }: any) => {
+  playerMgr.remove(playerId);
+  officePresence.delete(playerId);
+  playerCountEl.textContent = `👥 ${playerMgr.remotes.size + (joined ? 1 : 0)}`;
+});
+
+socket.on('player:moved' as any, (data: any) => {
+  playerMgr.moved(data);
+});
+
+socket.on('player:officeEntered' as any, (data: any) => {
+  officePresence.set(data.playerId, data.officeId ?? null);
+});
+socket.on('player:officeExited' as any, (data: any) => {
+  officePresence.set(data.playerId, null);
+});
+
+socket.on('error' as any, ({ message }: any) => {
+  joinError.textContent = message;
+  joinError.classList.remove('hidden');
+});
+
+// loop
+let last = performance.now();
+let animState: Player['animationState'] = 'idle';
+
+function tick(now: number) {
+  requestAnimationFrame(tick);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  if (joined && world && localVisual && localPlayer) {
+    const move = input.getMoveVector();
+    const moving = Math.hypot(move.x, move.z) > 0.01;
+    animState = !physics.onGround ? 'jump' : moving ? 'walk' : 'idle';
+
+    physics.update(dt, move, input.state.jump, world);
+    localVisual.setPosition(physics.pos);
+    // rotación hacia dirección de movimiento (lerp visual)
+    if (moving) {
+      const ang = Math.atan2(move.x, move.z);
+      const cur = localVisual.group.rotation.y;
+      let d = ang - cur;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      localVisual.setRotationY(cur + d * 0.2);
+    }
+    localVisual.update(dt, { moving, onGround: physics.onGround });
+
+    // cámara
+    cameraCtrl.update(physics.pos, dt);
+
+    // oficinas
+    const { entered, exited } = officeMgr.check({
+      x: physics.pos.x,
+      y: physics.pos.y,
+      z: physics.pos.z,
+    });
+    if (entered) {
+      socket.emit('player:officeEnter', { officeId: entered.id });
+      officePresence.set(localPlayer.id, entered.id);
+      let c = 0;
+      for (const oid of officePresence.values()) if (oid === entered.id) c++;
+      showOfficePanel(entered, c);
+    }
+    if (exited) {
+      socket.emit('player:officeLeave', { officeId: exited.id });
+      officePresence.set(localPlayer!.id, null);
+      hideOfficePanel();
+    }
+
+    // network send 20Hz — rotation viene del visual (separación State/Visual)
+    if (now - lastSend > 50) {
+      lastSend = now;
+      socket.emit('player:move', {
+        position: { x: physics.pos.x, y: physics.pos.y, z: physics.pos.z },
+        rotation: localVisual.group.rotation.y,
+        animationState: animState,
+      });
+    }
+  } else if (!joined) {
+    // cámara fija isométrica mirando al centro — NO orbitar (confundía WASD)
+    cameraCtrl.target.set(20, 0, 20);
+    const staticPos = cameraCtrl.target.clone().add(cameraCtrl.offset);
+    cameraCtrl.camera.position.copy(staticPos);
+    cameraCtrl.camera.lookAt(cameraCtrl.target);
+  }
+
+  playerMgr.update(now);
+  renderer.render(scene, cameraCtrl.camera);
+}
+tick(performance.now());
+
+window.addEventListener('resize', () => {
+  cameraCtrl.resize(window.innerWidth / window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+window.addEventListener('wheel', (e) => cameraCtrl.wheel(e.deltaY), {
+  passive: true,
+});
+
+// offline fallback: si no hay server en 2s y no joined, permitir jugar offline
+setTimeout(() => {
+  if (!joined) {
+    const status = document.getElementById('join-status') as HTMLElement;
+    if (!socket.connected)
+      status.textContent = 'Modo offline (sin servidor). Puedes entrar igual.';
+    // permitir join offline
+    const orig = doJoin;
+    // monkey patch: si socket no conectado, simular join local
+    btnEnter.onclick = () => {
+      if (socket.connected) return orig();
+      const name = sanitizeName(nameInput.value.trim() || 'guest');
+      joinScreen.classList.add('hidden');
+      joined = true;
+      const fake: Player = {
+        id: 'local',
+        name,
+        color: 0x4a90e2,
+        position: { x: 20, y: 1, z: 20 },
+        rotation: 0,
+        animationState: 'idle',
+        currentOfficeId: null,
+        inMeeting: false,
+      };
+      spawnLocal(fake);
+    };
+  }
+}, 2000);
