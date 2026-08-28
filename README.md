@@ -2,7 +2,7 @@
 
 **Minecraft isométrico + oficina virtual + Google Meet** · MVP funcional.
 
-Vista isométrica fija (OrthographicCamera), mundo voxel 40×40, 4 oficinas, avatares, multiplayer Socket.IO y botón que abre Google Meet en nueva pestaña.
+Vista isométrica fija (OrthographicCamera), mundo voxel 48×40 con pasillo central, 5 salas, avatares animados, multiplayer Socket.IO y Google Meet por sala.
 
 > Plan técnico completo en [`PLAN.md`](./PLAN.md). Basado en análisis de `souramoo/party` y requisitos de `instrucciones.txt`.
 
@@ -37,17 +37,25 @@ cp .env.example .env
 ## Criterios MVP
 
 - [x] Vista isométrica ortográfica, zoom rueda
-- [x] Mundo 40×40 bloques + paredes + oficinas
-- [x] Avatar voxel + WASD isométrico + colisiones AABB + salto
-- [x] 4 oficinas con Meet URL configurable (`config/offices.json`)
-- [x] Detección entrada/salida + panel "Entrar a reunión"
+- [x] Mundo 48×40 bloques + paredes + 5 salas con puerta al pasillo central
+- [x] Avatar animado (idle/walk/sprint) + WASD isométrico + colisiones AABB + salto con coyote time
+- [x] 5 salas con Meet URL configurable (`config/offices.json`)
+- [x] Detección entrada/salida + panel de sala + **E** en la mesa para abrir el Meet
+- [x] Minimapa con las salas y los jugadores
 - [x] Multiplayer 20Hz + interpolación + nombres + colores
 - [x] Google Meet `window.open` (no iframe, por CSP/X-Frame-Options)
 - [x] Funciona offline (modo demo sin servidor)
 
+## Controles
+
+`WASD` moverse · `Shift` correr · `Espacio` saltar · `E` entrar a la reunión (parado en la mesa) · rueda para zoom
+
 ## Configurar oficinas
 
-Edita `config/offices.json`:
+Agregar una sala es agregar una entrada a `config/offices.json`: las paredes, la puerta al
+pasillo, el color, el cartel, la luz y los muebles salen solos de sus `bounds`.
+Las salas van arriba (`maxZ < 15`) o abajo (`minZ > 23`) del pasillo central.
+
 ```json
 { "id":"office-1","name":"Sala Dev","bounds":{...},"meetingUrl":"https://meet.google.com/...","spawnPoint":{...} }
 ```

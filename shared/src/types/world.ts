@@ -1,7 +1,7 @@
 import type { Office } from './office.js';
 import type { Vec3 } from './vec3.js';
 
-export type BlockType = 'grass' | 'stone' | 'wood' | 'glass' | 'wool' | 'air' | 'wall_pink' | 'wall_purple' | 'desk' | 'monitor' | 'plant' | 'shelf';
+export type BlockType = 'grass' | 'stone' | 'wood' | 'glass' | 'wool' | 'air' | 'wall_pink' | 'wall_purple' | 'wall_teal' | 'trim' | 'desk' | 'monitor' | 'plant' | 'shelf';
 
 export interface BlockData {
   x: number;

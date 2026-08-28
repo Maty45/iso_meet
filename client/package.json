@@ -6,7 +6,8 @@
     "dev": "vite --port 5173 --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@iso-meet/shared": "*",

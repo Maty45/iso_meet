@@ -40,19 +40,36 @@ export function createAvatar(color: number): THREE.Group {
   return g;
 }
 
-export function createNametag(name: string): THREE.Sprite {
+export interface NametagOptions {
+  width?: number;
+  fontSize?: number;
+  background?: string;
+  maxChars?: number;
+}
+
+// Sirve para los nombres sobre los jugadores y para los carteles sobre las puertas.
+export function createNametag(
+  name: string,
+  opts: NametagOptions = {},
+): THREE.Sprite {
+  const {
+    width = 256,
+    fontSize = 28,
+    background = 'rgba(0,0,0,0.6)',
+    maxChars = 24,
+  } = opts;
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
+  canvas.width = width;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D not supported');
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = background;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 28px system-ui';
+  ctx.font = `bold ${fontSize}px system-ui`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(name.slice(0, 16), 128, 32);
+  ctx.fillText(name.slice(0, maxChars), canvas.width / 2, 32);
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({

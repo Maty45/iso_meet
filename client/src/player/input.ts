@@ -4,6 +4,7 @@ export interface InputState {
   left: boolean;
   right: boolean;
   jump: boolean;
+  sprint: boolean;
 }
 
 export class Input {
@@ -13,8 +14,15 @@ export class Input {
     left: false,
     right: false,
     jump: false,
+    sprint: false,
   };
   private keys = new Set<string>();
+  private interactHandlers: (() => void)[] = [];
+
+  /** E = interactuar (abrir la reunión parado en la mesa). */
+  onInteract(fn: () => void) {
+    this.interactHandlers.push(fn);
+  }
 
   constructor() {
     window.addEventListener('keydown', (e) => this.onKey(e, true));
@@ -22,12 +30,16 @@ export class Input {
   }
 
   private onKey(e: KeyboardEvent, down: boolean) {
+    // Escribir el nombre en el join screen no debe mover al personaje ni abrir el Meet.
+    if (e.target instanceof HTMLInputElement) return;
     const k = e.key.toLowerCase();
     if (['w', 'arrowup'].includes(k)) this.state.forward = down;
     if (['s', 'arrowdown'].includes(k)) this.state.back = down;
     if (['a', 'arrowleft'].includes(k)) this.state.left = down;
     if (['d', 'arrowright'].includes(k)) this.state.right = down;
     if (k === ' ') this.state.jump = down;
+    if (k === 'shift') this.state.sprint = down;
+    if (k === 'e' && down) for (const fn of this.interactHandlers) fn();
     // evitar scroll con espacio/flechas
     if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
       if (down) e.preventDefault();

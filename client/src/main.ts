@@ -1,5 +1,5 @@
 import type { Player } from '@iso-meet/shared';
-import { sanitizeName } from '@iso-meet/shared';
+import { WORLD_SIZE, sanitizeName } from '@iso-meet/shared';
 import * as THREE from 'three';
 import { createSocket } from './multiplayer/network.js';
 import { PlayerManager } from './multiplayer/playerManager.js';
@@ -10,6 +10,7 @@ import { PlayerVisual } from './player/PlayerVisual.js';
 import { IsoCamera } from './rendering/camera.js';
 import { World, createDefaultWorldConfig } from './world/world.js';
 import { assetManager } from './assets/AssetManager.js';
+import { Minimap } from './ui/minimap.js';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const joinScreen = document.getElementById('join-screen') as HTMLDivElement;
@@ -63,14 +64,19 @@ dir.shadow.camera.top = 30;
 dir.shadow.camera.bottom = -30;
 dir.shadow.bias = -0.0005;
 scene.add(dir);
-// luces puntuales cálidas por oficina (imitan lámparas colgantes de la imagen)
-const officeLights: THREE.PointLight[] = [];
-for (const pos of [[8, 3.2, 8], [24, 3.2, 8], [8, 3.2, 24], [24, 3.2, 24]] as const) {
-  const pl = new THREE.PointLight(0xfff2c8, 18, 14, 2);
-  pl.position.set(pos[0], pos[1], pos[2]);
-  pl.castShadow = false;
-  scene.add(pl);
-  officeLights.push(pl);
+// luces puntuales cálidas por sala — derivadas de los bounds, no de posiciones fijas:
+// mover o agregar una sala en offices.json no debe dejar la luz colgada en el vacío.
+let officeLights: THREE.PointLight[] = [];
+function rebuildOfficeLights(offices: { bounds: { minX: number; maxX: number; minZ: number; maxZ: number } }[]) {
+  for (const pl of officeLights) scene.remove(pl);
+  officeLights = [];
+  for (const o of offices) {
+    const pl = new THREE.PointLight(0xfff2c8, 18, 14, 2);
+    pl.position.set((o.bounds.minX + o.bounds.maxX) / 2, 3.2, (o.bounds.minZ + o.bounds.maxZ) / 2);
+    pl.castShadow = false;
+    scene.add(pl);
+    officeLights.push(pl);
+  }
 }
 
 // FASE 8: preload de los 5 assets más usados (no bloquea, cachea para 20 sillas = 1 fetch)
@@ -80,6 +86,7 @@ assetManager.preload(['chair', 'desk', 'plant', 'table', 'bookshelf', 'player'])
 let world: World | null = null;
 let worldConfig: any = createDefaultWorldConfig();
 const officeMgr = new OfficeManager();
+const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement);
 
 // player local — separación STATE (physics/Player) vs VISUAL (PlayerVisual GLB)
 const input = new Input();
@@ -102,6 +109,8 @@ function createWorld(cfg: any) {
   }
   world = new World(cfg, scene);
   officeMgr.setOffices(cfg.offices ?? []);
+  rebuildOfficeLights(cfg.offices ?? []);
+  minimap.setWorld(cfg);
 }
 
 createWorld(worldConfig);
@@ -128,14 +137,13 @@ function hideOfficePanel() {
   officePanel.classList.add('hidden');
 }
 
-btnMeet.addEventListener('click', () => {
-  const url = (btnMeet as any).dataset.url as string;
-  console.log('[meet] click url=', url);
+// Debe correr sincrónico dentro del gesto del usuario (click o keydown) o el popup blocker lo corta.
+function openMeet(url: string) {
+  console.log('[meet] abriendo url=', url);
   if (!url) {
     alert('No hay URL configurada para esta sala');
     return;
   }
-  // debe ser sincrónico con el click para evitar popup blocker
   const win = window.open(url, '_blank', 'noopener');
   if (!win || win.closed || typeof win.closed === 'undefined') {
     // fallback: crear <a> visible en DOM
@@ -147,6 +155,16 @@ btnMeet.addEventListener('click', () => {
     a.click();
     a.remove();
   }
+}
+
+btnMeet.addEventListener('click', () => openMeet((btnMeet as any).dataset.url as string));
+
+// E parado en la mesa de reuniones abre el Meet de esa sala.
+const MEET_REACH = 2.4;
+const meetPrompt = document.getElementById('meet-prompt') as HTMLDivElement;
+let meetInReach: string | null = null;
+input.onInteract(() => {
+  if (meetInReach) openMeet(meetInReach);
 });
 btnLeaveOffice.addEventListener('click', hideOfficePanel);
 
@@ -238,11 +256,19 @@ function tick(now: number) {
   last = now;
 
   if (joined && world && localVisual && localPlayer) {
-    const move = input.getMoveVector();
+    const move = { ...input.getMoveVector(), sprint: input.state.sprint };
     const moving = Math.hypot(move.x, move.z) > 0.01;
-    animState = !physics.onGround ? 'jump' : moving ? 'walk' : 'idle';
 
     physics.update(dt, move, input.state.jump, world);
+    // el estado se lee DESPUÉS del step: sprinting lo define la física, no la tecla
+    animState = !physics.onGround
+      ? 'jump'
+      : moving
+        ? physics.sprinting
+          ? 'sprint'
+          : 'walk'
+        : 'idle';
+    localVisual.setAnimation(animState);
     localVisual.setPosition(physics.pos);
     // rotación hacia dirección de movimiento (lerp visual)
     if (moving) {
@@ -276,6 +302,16 @@ function tick(now: number) {
       hideOfficePanel();
     }
 
+    // Prompt de E: dentro de la sala Y parado en la mesa de reuniones.
+    const current = officeMgr.getCurrent();
+    const spot = current ? world.meetingSpots.get(current.id) : undefined;
+    const nearTable =
+      !!spot && Math.hypot(physics.pos.x - spot.x, physics.pos.z - spot.z) < MEET_REACH;
+    meetInReach = nearTable && current ? current.meetingUrl : null;
+    meetPrompt.classList.toggle('hidden', !meetInReach);
+
+    minimap.draw(physics.pos, playerMgr.remotes, officeMgr.currentId);
+
     // network send 20Hz — rotation viene del visual (separación State/Visual)
     if (now - lastSend > 50) {
       lastSend = now;
@@ -286,8 +322,8 @@ function tick(now: number) {
       });
     }
   } else if (!joined) {
-    // cámara fija isométrica mirando al centro — NO orbitar (confundía WASD)
-    cameraCtrl.target.set(20, 0, 20);
+    // cámara fija isométrica mirando al centro del mapa — NO orbitar (confundía WASD)
+    cameraCtrl.target.set(WORLD_SIZE.width / 2, 0, WORLD_SIZE.depth / 2);
     const staticPos = cameraCtrl.target.clone().add(cameraCtrl.offset);
     cameraCtrl.camera.position.copy(staticPos);
     cameraCtrl.camera.lookAt(cameraCtrl.target);
@@ -324,7 +360,7 @@ setTimeout(() => {
         id: 'local',
         name,
         color: 0x4a90e2,
-        position: { x: 20, y: 1, z: 20 },
+        position: worldConfig.spawnPoints?.[0] ?? { x: 24, y: 1, z: 19 },
         rotation: 0,
         animationState: 'idle',
         currentOfficeId: null,

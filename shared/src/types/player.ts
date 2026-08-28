@@ -1,6 +1,6 @@
 import type { Vec3 } from './vec3.js';
 
-export type AnimationState = 'idle' | 'walk' | 'jump';
+export type AnimationState = 'idle' | 'walk' | 'sprint' | 'jump';
 
 export interface Player {
   id: string;

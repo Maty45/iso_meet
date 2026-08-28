@@ -1,6 +1,16 @@
+import type { AnimationState } from '@iso-meet/shared';
 import * as THREE from 'three';
 import { assetManager } from '../assets/AssetManager.js';
 import { createAvatar, createNametag } from './avatar.js';
+
+// Nombres reales de los clips dentro de player.glb (Kenney Mini Characters).
+const CLIP_FOR: Record<AnimationState, string> = {
+  idle: 'idle',
+  walk: 'walk',
+  sprint: 'sprint',
+  jump: 'static',
+};
+const FADE = 0.15;
 
 export interface PlayerVisualOptions {
   name: string;
@@ -16,6 +26,8 @@ export class PlayerVisual {
   private modelGroup: THREE.Group | null = null;
   private nametag: THREE.Sprite | null = null;
   private mixer: THREE.AnimationMixer | null = null;
+  private actions = new Map<string, THREE.AnimationAction>();
+  private current: AnimationState = 'idle';
   private baseColor: number;
 
   constructor(private opts: PlayerVisualOptions) {
@@ -77,13 +89,19 @@ export class PlayerVisual {
       this.modelGroup = glb;
       this.group.add(glb);
 
-      // Si el GLB trae animaciones (idle/run), preparar mixer
-      // Kenney Blocky GLB no trae anims embebidas, pero animaciones separadas se podrían cargar
-      // Por ahora usamos bob simple en update()
-      if ((glb as any).animations && (glb as any).animations.length > 0) {
+      // player.glb trae 27 clips (idle/walk/sprint/...). Se arma una acción por cada
+      // estado que usamos y se cruzan con crossFade; sin esto el personaje se desliza.
+      const clips: THREE.AnimationClip[] = glb.userData.animations ?? [];
+      if (clips.length > 0) {
         this.mixer = new THREE.AnimationMixer(glb);
-        const clip = (glb as any).animations[0];
-        this.mixer.clipAction(clip).play();
+        for (const state of Object.keys(CLIP_FOR) as AnimationState[]) {
+          const clip = THREE.AnimationClip.findByName(clips, CLIP_FOR[state]);
+          if (!clip) continue;
+          const action = this.mixer.clipAction(clip);
+          action.play();
+          action.setEffectiveWeight(state === this.current ? 1 : 0);
+          this.actions.set(state, action);
+        }
       }
     } catch (e) {
       console.warn('[PlayerVisual] fallo cargando player.glb, manteniendo placeholder cajas', e);
@@ -110,11 +128,27 @@ export class PlayerVisual {
     this.group.add(this.nametag);
   }
 
+  /** Cruza a la animación del estado dado. No-op si ya está en ese estado. */
+  setAnimation(state: AnimationState) {
+    if (state === this.current) return;
+    const next = this.actions.get(state);
+    const prev = this.actions.get(this.current);
+    this.current = state;
+    if (!next) return;
+    next.enabled = true;
+    next.setEffectiveTimeScale(1);
+    if (prev && prev !== next) next.crossFadeFrom(prev, FADE, false);
+    else next.setEffectiveWeight(1);
+  }
+
   update(delta: number, opts: { moving: boolean; onGround: boolean }) {
-    if (this.mixer) this.mixer.update(delta);
-    // Bob solo cuando camina; quieto apoyado en suelo (y=0)
-    const baseY = 0;
-    if (!this.mixer && this.modelGroup) {
+    if (this.mixer) {
+      this.mixer.update(delta);
+      return;
+    }
+    // Sin clips (fallback de cajas): bob manual para que no se deslice inerte.
+    if (this.modelGroup) {
+      const baseY = 0;
       if (opts.moving && opts.onGround) {
         this.modelGroup.position.y = baseY + Math.sin(performance.now() * 0.012) * 0.05;
       } else {
@@ -133,3 +167,4 @@ export class PlayerVisual {
     this.baseColor = color;
   }
 }
+

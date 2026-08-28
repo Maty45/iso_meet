@@ -5,24 +5,34 @@ import type { World } from '../world/world.js';
 const EPS = 0.001;
 const SUBSTEP = 1 / 120;
 
+export interface MoveInput {
+  x: number;
+  z: number;
+  sprint?: boolean;
+}
+
 export class Physics {
   pos = new THREE.Vector3(20, 1, 20);
   vel = new THREE.Vector3();
   onGround = false;
+  sprinting = false;
+  /** Tiempo restante para saltar después de dejar el piso (coyote time). */
+  private coyote = 0;
+  /** Tiempo restante de un salto pedido en el aire (jump buffer). */
+  private buffered = 0;
+  private jumpHeld = false;
 
-  update(
-    dt: number,
-    move: { x: number; z: number },
-    jump: boolean,
-    world: World,
-  ) {
+  update(dt: number, move: MoveInput, jump: boolean, world: World) {
     dt = Math.min(dt, 0.1);
-    // target horizontal velocity
-    const speed = PLAYER.speedWalk;
+    // Espacio se consume por flanco: mantenerlo apretado no encadena saltos.
+    if (jump && !this.jumpHeld) this.buffered = PLAYER.jumpBuffer;
+    this.jumpHeld = jump;
+
+    this.sprinting = !!move.sprint && Math.hypot(move.x, move.z) > 0.01;
+    const speed = this.sprinting ? PLAYER.speedSprint : PLAYER.speedWalk;
     const accel = this.onGround ? 18 : 6;
     const targetX = move.x * speed;
     const targetZ = move.z * speed;
-    // se aplicará por substep
 
     let remaining = dt;
     while (remaining > 1e-6) {
@@ -36,10 +46,12 @@ export class Physics {
       this.vel.y -= PLAYER.gravity * h;
       if (this.vel.y < -40) this.vel.y = -40;
 
-      // salto
-      if (jump && this.onGround) {
+      // salto: sale si hay uno pedido hace poco y estás en piso (o recién saliste)
+      if (this.buffered > 0 && (this.onGround || this.coyote > 0)) {
         this.vel.y = PLAYER.jumpV;
         this.onGround = false;
+        this.coyote = 0;
+        this.buffered = 0;
       }
 
       this.onGround = false;
@@ -50,6 +62,9 @@ export class Physics {
 
       this.moveAxis(0, this.vel.x * h, world);
       this.moveAxis(2, this.vel.z * h, world);
+
+      this.coyote = this.onGround ? PLAYER.coyoteTime : Math.max(0, this.coyote - h);
+      this.buffered = Math.max(0, this.buffered - h);
 
       remaining -= h;
     }

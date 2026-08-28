@@ -15,6 +15,7 @@
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w shared && npm run build -w client && npm run build -w server",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server",
+    "test": "npm run test -w shared && npm run test -w client",
     "lint": "biome check .",
     "format": "biome check --write ."
   },

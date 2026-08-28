@@ -145,3 +145,56 @@ body {
   margin: 6px 4px 0;
   display: inline-block;
 }
+
+#hud-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  padding: 0;
+}
+#hud-controls {
+  background: rgba(255, 255, 255, 0.85);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+#meet-prompt {
+  background: rgba(20, 26, 40, 0.92);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+  animation: meet-pop 0.18s ease-out;
+}
+#meet-prompt kbd {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #4a90e2;
+  font-family: inherit;
+  text-align: center;
+}
+@keyframes meet-pop {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
+#minimap {
+  position: fixed;
+  top: 48px;
+  right: 16px;
+  width: 192px;
+  height: 160px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 4;
+}

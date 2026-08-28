@@ -10,23 +10,30 @@
     {
       "id": "office-2",
       "name": "Sala de Diseño",
-      "bounds": { "minX": 18, "maxX": 30, "minY": 0, "maxY": 6, "minZ": 2, "maxZ": 14 },
+      "bounds": { "minX": 17, "maxX": 29, "minY": 0, "maxY": 6, "minZ": 2, "maxZ": 14 },
       "meetingUrl": "https://meet.google.com/new",
-      "spawnPoint": { "x": 24, "y": 1, "z": 8 }
+      "spawnPoint": { "x": 23, "y": 1, "z": 8 }
     },
     {
       "id": "office-3",
       "name": "Sala de Reuniones",
-      "bounds": { "minX": 2, "maxX": 14, "minY": 0, "maxY": 6, "minZ": 18, "maxZ": 30 },
+      "bounds": { "minX": 32, "maxX": 44, "minY": 0, "maxY": 6, "minZ": 2, "maxZ": 14 },
       "meetingUrl": "https://meet.google.com/new",
-      "spawnPoint": { "x": 8, "y": 1, "z": 24 }
+      "spawnPoint": { "x": 38, "y": 1, "z": 8 }
     },
     {
       "id": "office-4",
       "name": "Sala de Juegos",
-      "bounds": { "minX": 18, "maxX": 30, "minY": 0, "maxY": 6, "minZ": 18, "maxZ": 30 },
-      "meetingUrl": "https://meet.google.com/aru-xnni-cpx",
-      "spawnPoint": { "x": 24, "y": 1, "z": 24 }
+      "bounds": { "minX": 2, "maxX": 14, "minY": 0, "maxY": 6, "minZ": 24, "maxZ": 36 },
+      "meetingUrl": "https://meet.google.com/new",
+      "spawnPoint": { "x": 8, "y": 1, "z": 30 }
+    },
+    {
+      "id": "office-5",
+      "name": "Lounge",
+      "bounds": { "minX": 17, "maxX": 29, "minY": 0, "maxY": 6, "minZ": 24, "maxZ": 36 },
+      "meetingUrl": "https://meet.google.com/new",
+      "spawnPoint": { "x": 23, "y": 1, "z": 30 }
     }
   ]
 }

@@ -1,15 +1,23 @@
 import type { BlockData, BlockType, WorldConfig } from '@iso-meet/shared';
+import { CORRIDOR_Z, WORLD_SIZE, buildWorldBlocks } from '@iso-meet/shared';
 import * as THREE from 'three';
 import { BLOCK_COLORS } from './blocks.js';
 import { isSolid } from './blocks.js';
-import * as Furniture from './furniture.js';
 import { createWorldObjectSync } from '../entities/WorldObject.js';
+import { assetsCatalog } from '../assets/catalog.js';
+import { isFlipped, meetingSpot, officeProps, themeFor } from './officeLayout.js';
+import { createNametag } from '../player/avatar.js';
+
+/** Cota superior del bloque de piso: todo mueble se apoya acá. */
+const FLOOR_Y = 1;
 
 export class World {
   config: WorldConfig;
   scene: THREE.Scene;
   blocks = new Map<string, BlockType>(); // "x,y,z" -> type
   group = new THREE.Group();
+  /** officeId -> mesa de reuniones (zona donde se abre el Meet con E) */
+  meetingSpots = new Map<string, THREE.Vector3>();
   private blockMeshes = new Map<string, THREE.Mesh>();
   private instancedMeshes: THREE.InstancedMesh[] = [];
 
@@ -86,25 +94,19 @@ export class World {
 
     // Suelo de oficinas con colores estilo imagen (tonos pastel por sala)
     if (this.config.offices?.length) {
-      const officeColors: Record<string, number> = {
-        'office-1': 0xe8d5f5, // lila claro
-        'office-2': 0xf5d5a0, // madera cálida
-        'office-3': 0xd5c4f5, // púrpura
-        'office-4': 0xc5e8c5, // verde suave
-      };
-      const edgeColors: Record<string, number> = {
-        'office-1': 0xc8a0d8,
-        'office-2': 0xc8a86a,
-        'office-3': 0xa080d0,
-        'office-4': 0x80b080,
-      };
+      // El tono del piso deriva del color de pared de la sala: una sala nueva no pide tocar código.
+      const { wallTypeOf } = buildWorldBlocks(this.config.offices);
       for (const office of this.config.offices) {
+        const wallColor = new THREE.Color(
+          BLOCK_COLORS[wallTypeOf[office.id] ?? 'wood'],
+        );
+        const floorColor = wallColor.clone().lerp(new THREE.Color(0xffffff), 0.62);
         const { minX, maxX, minZ, maxZ } = office.bounds;
         const w = maxX - minX;
         const d = maxZ - minZ;
         const plane = new THREE.Mesh(
           new THREE.PlaneGeometry(w, d),
-          new THREE.MeshLambertMaterial({ color: officeColors[office.id] ?? 0xfff8e1 }),
+          new THREE.MeshLambertMaterial({ color: floorColor }),
         );
         plane.rotation.x = -Math.PI / 2;
         plane.position.set(minX + w / 2, 1.02, minZ + d / 2);
@@ -112,30 +114,35 @@ export class World {
         plane.receiveShadow = true;
         this.group.add(plane);
 
+        // alfombra interior: rompe el piso plano de una sola pieza
+        const rug = new THREE.Mesh(
+          new THREE.PlaneGeometry(w * 0.55, d * 0.55),
+          new THREE.MeshLambertMaterial({
+            color: wallColor.clone().lerp(new THREE.Color(0xffffff), 0.35),
+          }),
+        );
+        rug.rotation.x = -Math.PI / 2;
+        rug.position.set(minX + w / 2, 1.03, minZ + d / 2);
+        rug.receiveShadow = true;
+        this.group.add(rug);
+
         const edgeGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(w, 0.05, d));
         const edge = new THREE.LineSegments(
           edgeGeo,
-          new THREE.LineBasicMaterial({ color: edgeColors[office.id] ?? 0xc8a86a }),
+          new THREE.LineBasicMaterial({ color: wallColor }),
         );
-        edge.position.set(minX + w / 2, 1.03, minZ + d / 2);
+        edge.position.set(minX + w / 2, 1.04, minZ + d / 2);
         this.group.add(edge);
       }
     }
 
-    // Muebles detallados 3D (investigación: mejor forma es Groups con BoxGeometries compuestas)
-    // En lugar de cubos 1x1, usamos geometrías compuestas con patas/tapas/respaldos para sillones, mesas, etc.
-    // Esto mantiene estética voxel pero con siluetas reconocibles como en la imagen.
     this.addDetailedFurniture();
+    this.addDoorSigns();
   }
 
   private addDetailedFurniture() {
     if (!this.config.offices?.length) return;
-    const add = (group: THREE.Group, x: number, y: number, z: number, rotY = 0) => {
-      group.position.set(x, y, z);
-      group.rotation.y = rotY;
-      this.group.add(group);
-    };
-    // Híbrido: intenta GLB vía AssetManager, fallback a caja detallada (Fase 5: todo pasa por catálogo)
+    // Híbrido: intenta GLB vía AssetManager, fallback a caja detallada (todo pasa por el catálogo)
     const addHybrid = (type: string, x: number, y: number, z: number, rotY = 0, scale?: number) => {
       const placeholder = createWorldObjectSync(
         { type, position: [x, y, z], rotationY: rotY, scale },
@@ -148,89 +155,48 @@ export class World {
         },
       );
       this.group.add(placeholder);
+      // Colision: marca la celda del prop en el grid (buildMeshes ya corrio, no se renderiza nada nuevo).
+      // ponytail: 1 celda por mueble alcanza; si un sofa/mesa larga se atraviesa, marcar el AABB del GLB.
+      if (assetsCatalog[type]?.collidable) {
+        this.blocks.set(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`, 'desk');
+      }
       return placeholder;
     };
 
+    // Muebles por sala: posiciones relativas al centro (ver officeLayout.ts).
+    // Agregar una sala en config/offices.json alcanza para que se amueble sola.
     for (const office of this.config.offices) {
-      if (office.id === 'office-1') {
-        // FASE 5: todo híbrido via catálogo — cambiar .glb solo en catalog.ts
-        addHybrid('table', 7, 1, 6.5, 0); // mesa central 2x2
-        addHybrid('plant', 7, 1.92, 6.5, 0);
-        addHybrid('chair', 7, 1, 5.2, 0);
-        addHybrid('chair', 7, 1, 7.8, Math.PI);
-        addHybrid('chair', 5.8, 1, 6.5, Math.PI/2);
-        addHybrid('chair', 8.2, 1, 6.5, -Math.PI/2);
-        addHybrid('desk', 4.5, 1, 4.5, 0);
-        addHybrid('monitor', 4.5, 1.82, 4.3, 0);
-        addHybrid('laptop', 5.0, 1.82, 4.5, 0);
-        addHybrid('bookshelf', 3.5, 1, 3.5, 0);
-        addHybrid('bookshelf', 10.2, 1, 3.5, 0);
-        addHybrid('lamp', 6, 3.2, 6, 0);
-        addHybrid('lamp', 8, 3.2, 7, 0);
-        addHybrid('lamp', 5, 3.2, 5, 0);
-        addHybrid('plant', 11, 1, 11, 0);
-        addHybrid('picture', 3.2, 1.4, 2.05, 0);
-        addHybrid('trashcan', 12.5, 1, 5, 0);
-      } else if (office.id === 'office-2') {
-        addHybrid('meeting_table', 24, 1, 8, 0);
-        addHybrid('desk', 24, 1, 10, 0);
-        addHybrid('chair', 22, 1, 6.5, 0);
-        addHybrid('chair', 24, 1, 6.5, 0);
-        addHybrid('chair', 26, 1, 6.5, 0);
-        addHybrid('chair', 22, 1, 10.8, Math.PI);
-        addHybrid('chair', 24, 1, 10.8, Math.PI);
-        addHybrid('chair', 26, 1, 8.5, -Math.PI/2);
-        addHybrid('monitor', 29.5, 1, 8, -Math.PI/2);
-        addHybrid('sofa', 19.5, 1, 4.2, 0);
-        addHybrid('bookshelf', 19, 1, 3.5, 0);
-        addHybrid('cabinet', 20.5, 1, 3.5, 0);
-        addHybrid('plant', 28.5, 1, 12.2, 0);
-        addHybrid('plant', 19, 1, 12.2, 0);
-        addHybrid('carpet', 24, 0.02, 8, 0);
-      } else if (office.id === 'office-3') {
-        addHybrid('whiteboard', 4, 1, 18.5, 0);
-        addHybrid('table', 8, 1, 20.5, 0);
-        addHybrid('desk', 8, 1, 24.5, 0);
-        addHybrid('desk', 11, 1, 26, 0);
-        addHybrid('chair', 8, 1, 19.2, 0);
-        addHybrid('chair', 8, 1, 25.8, Math.PI);
-        addHybrid('chair', 6.2, 1, 20.5, Math.PI/2);
-        addHybrid('meeting_table', 11, 1, 27.5, 0);
-        addHybrid('monitor', 11, 1.82, 27.5, 0);
-        addHybrid('bookshelf', 13.2, 1, 20.5, Math.PI/2);
-        addHybrid('bookshelf', 13.2, 1, 26, Math.PI/2);
-        addHybrid('plant', 3.2, 1, 28.2, 0);
-        addHybrid('plant', 12.5, 1, 28.2, 0);
-        addHybrid('lamp', 8, 3.2, 20.5, 0);
-      } else if (office.id === 'office-4') {
-        addHybrid('desk', 24, 1, 21.5, 0);
-        addHybrid('monitor', 23, 1.82, 21.2, 0);
-        addHybrid('monitor', 25, 1.82, 21.2, 0);
-        addHybrid('desk', 24, 1, 26.5, 0);
-        addHybrid('monitor', 24, 1.82, 26.5, Math.PI);
-        addHybrid('laptop', 22.5, 1.82, 26.5, 0);
-        addHybrid('keyboard', 24, 1.82, 26.5, 0);
-        addHybrid('chair', 23, 1, 22.5, Math.PI);
-        addHybrid('chair', 25, 1, 22.5, Math.PI);
-        addHybrid('chair', 23, 1, 27.5, 0);
-        addHybrid('chair', 25, 1, 27.5, 0);
-        addHybrid('bookshelf', 29.2, 1, 20.5, 0);
-        addHybrid('bookshelf', 29.2, 1, 26.5, 0);
-        addHybrid('cabinet', 29.2, 1, 23.5, 0);
-        addHybrid('plant', 22, 1, 28.5, 0);
-        addHybrid('plant', 27.5, 1, 22, 0);
-        addHybrid('carpet', 24, 0.02, 24, 0);
+      const c = meetingSpot(office.bounds);
+      this.meetingSpots.set(office.id, new THREE.Vector3(c.x, FLOOR_Y, c.z));
+      for (const p of officeProps(themeFor(office.id), isFlipped(office.bounds))) {
+        addHybrid(p.type, c.x + p.dx, FLOOR_Y + p.dy, c.z + p.dz, p.rotY ?? 0, p.scale);
       }
     }
-    // decoración central plaza (spawn 16,16)
-    const centerPlant = Furniture.createPlant();
-    centerPlant.scale.set(0.8, 0.8, 0.8);
-    centerPlant.position.set(16, 1, 16);
-    this.group.add(centerPlant);
-    const centerPlant2 = Furniture.createPlant();
-    centerPlant2.scale.set(0.6, 0.6, 0.6);
-    centerPlant2.position.set(16, 1, 14.5);
-    this.group.add(centerPlant2);
+    // decoración del pasillo central
+    const cz = (CORRIDOR_Z.min + CORRIDOR_Z.max) / 2;
+    addHybrid('plant', WORLD_SIZE.width / 2 - 1, FLOOR_Y, cz);
+    addHybrid('plant', WORLD_SIZE.width / 2 + 1, FLOOR_Y, cz, 0, 0.7);
+  }
+
+  /** Cartel con el nombre de la sala sobre el vano de la puerta, mirando al pasillo. */
+  private addDoorSigns() {
+    if (!this.config.offices?.length) return;
+    const { doors } = buildWorldBlocks(this.config.offices);
+    for (const door of doors) {
+      const office = this.config.offices.find((o) => o.id === door.officeId);
+      if (!office) continue;
+      const sign = createNametag(office.name, {
+        width: 512,
+        fontSize: 44,
+        background: 'rgba(35,30,45,0.88)',
+      });
+      // a diferencia del nametag de jugador, el cartel no debe verse a través de las paredes
+      sign.material.depthTest = true;
+      sign.scale.set(4.4, 1.1, 1);
+      // el vano son las celdas door.x-1 y door.x -> su centro geométrico es door.x
+      sign.position.set(door.x, 4.3, door.z + 0.5 + door.facing * 0.6);
+      this.group.add(sign);
+    }
   }
 
   isSolidAt(x: number, y: number, z: number): boolean {
@@ -261,66 +227,27 @@ export class World {
 }
 
 export function createDefaultWorldConfig(): WorldConfig {
-  // Fallback si server no envía world (dev offline)
-  const size = { width: 40, depth: 40, height: 12 };
-  const blocks: BlockData[] = [];
-  // Paredes perimetrales
-  for (let x = 0; x < size.width; x++) {
-    for (let y = 1; y <= 3; y++) {
-      blocks.push({ x, y, z: 0, type: 'stone' });
-      blocks.push({ x, y, z: size.depth - 1, type: 'stone' });
-    }
-  }
-  for (let z = 0; z < size.depth; z++) {
-    for (let y = 1; y <= 3; y++) {
-      blocks.push({ x: 0, y, z, type: 'stone' });
-      blocks.push({ x: size.width - 1, y, z, type: 'stone' });
-    }
-  }
-  // Oficinas sintéticas para offline (mismos bounds que config/offices.json) + paredes y muebles
-  const offices = [
-    { id: 'office-1', name: 'Sala de Desarrollo', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 2, maxZ: 14 }, meetingUrl: '', spawnPoint: { x: 8, y: 1, z: 8 } },
-    { id: 'office-2', name: 'Sala de Diseño', bounds: { minX: 18, maxX: 30, minY: 0, maxY: 6, minZ: 2, maxZ: 14 }, meetingUrl: '', spawnPoint: { x: 24, y: 1, z: 8 } },
-    { id: 'office-3', name: 'Sala de Reuniones', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 18, maxZ: 30 }, meetingUrl: '', spawnPoint: { x: 8, y: 1, z: 24 } },
-    { id: 'office-4', name: 'Sala de Juegos', bounds: { minX: 18, maxX: 30, minY: 0, maxY: 6, minZ: 18, maxZ: 30 }, meetingUrl: '', spawnPoint: { x: 24, y: 1, z: 24 } },
-  ] as WorldConfig['offices'];
-  const wallType = (id: string) => (id === 'office-1' ? 'wall_pink' : id === 'office-2' ? 'wood' : id === 'office-3' ? 'wall_purple' : 'shelf') as BlockType;
-  const push = (x: number, y: number, z: number, type: BlockType) => blocks.push({ x, y, z, type });
-  for (const office of offices) {
-    const { minX, maxX, minZ, maxZ } = office.bounds;
-    const wall = wallType(office.id);
-    const isTop = (minZ + maxZ) / 2 < 20;
-    const doorWallZ = isTop ? maxZ : minZ;
-    const windowWallZ = isTop ? minZ : maxZ;
-    const doorXa = Math.floor((minX + maxX) / 2);
-    const winX = minX + 2;
-    for (let y = 1; y <= 3; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const isDoorGap = doorWallZ === minZ && y <= 2 && (x === doorXa || x === doorXa + 1);
-        if (isDoorGap) { if (y === 3) push(x, y, minZ, wall); continue; }
-        const isWindow = windowWallZ === minZ && y === 2 && (x === winX || x === winX + 1) && office.id !== 'office-4';
-        if (isWindow) { push(x, y, minZ, 'glass'); continue; }
-        push(x, y, minZ, wall);
-      }
-      for (let x = minX; x <= maxX; x++) {
-        const isDoorGap = doorWallZ === maxZ && y <= 2 && (x === doorXa || x === doorXa + 1);
-        if (isDoorGap) { if (y === 3) push(x, y, maxZ, wall); continue; }
-        const isWindow = windowWallZ === maxZ && y === 2 && (x === winX || x === winX + 1) && office.id !== 'office-4';
-        if (isWindow) { push(x, y, maxZ, 'glass'); continue; }
-        push(x, y, maxZ, wall);
-      }
-      for (let z = minZ + 1; z <= maxZ - 1; z++) { push(minX, y, z, wall); push(maxX, y, z, wall); }
-    }
-    if (office.id === 'office-1') { push(6, 1, 6, 'desk'); push(7, 1, 6, 'desk'); push(6, 1, 7, 'desk'); push(7, 1, 7, 'desk'); push(6, 2, 6, 'plant'); push(6, 1, 5, 'wool'); push(7, 1, 5, 'wool'); push(4, 1, 4, 'desk'); push(4, 2, 4, 'monitor'); push(3, 1, 3, 'shelf'); push(3, 2, 3, 'shelf'); }
-    if (office.id === 'office-2') { push(19, 1, 6, 'desk'); push(20, 1, 6, 'desk'); push(21, 1, 6, 'desk'); push(19, 1, 8, 'desk'); push(25, 2, 6, 'monitor'); push(17, 1, 4, 'wool'); push(17, 1, 3, 'shelf'); push(24, 1, 10, 'plant'); }
-    if (office.id === 'office-3') { push(4, 1, 20, 'shelf'); push(6, 1, 18, 'desk'); push(7, 1, 18, 'desk'); push(9, 1, 22, 'desk'); push(9, 2, 24, 'monitor'); push(11, 1, 18, 'shelf'); }
-    if (office.id === 'office-4') { push(19, 1, 19, 'desk'); push(20, 1, 19, 'desk'); push(19, 2, 19, 'monitor'); push(19, 1, 23, 'desk'); push(22, 2, 23, 'monitor'); push(25, 1, 18, 'shelf'); push(19, 1, 25, 'plant'); }
-  }
-
+  // Fallback si el server no responde (dev offline). Mismas salas y misma geometría
+  // que el mundo autoritativo: si esto divergiera, jugar offline mostraría otro mapa.
+  const offices: WorldConfig['offices'] = OFFLINE_OFFICES.map((o) => ({
+    ...o,
+    meetingUrl: '',
+    spawnPoint: { x: (o.bounds.minX + o.bounds.maxX) / 2, y: 1, z: (o.bounds.minZ + o.bounds.maxZ) / 2 },
+  }));
+  const { blocks } = buildWorldBlocks(offices);
   return {
-    size,
+    size: { width: WORLD_SIZE.width, depth: WORLD_SIZE.depth, height: WORLD_SIZE.height },
     blocks,
     offices,
-    spawnPoints: [{ x: 16, y: 1, z: 16 }],
+    spawnPoints: [{ x: WORLD_SIZE.width / 2, y: 1, z: (CORRIDOR_Z.min + CORRIDOR_Z.max) / 2 }],
   };
 }
+
+// Espejo de config/offices.json para el modo offline (el server es la fuente real).
+const OFFLINE_OFFICES = [
+  { id: 'office-1', name: 'Sala de Desarrollo', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 2, maxZ: 14 } },
+  { id: 'office-2', name: 'Sala de Diseño', bounds: { minX: 17, maxX: 29, minY: 0, maxY: 6, minZ: 2, maxZ: 14 } },
+  { id: 'office-3', name: 'Sala de Reuniones', bounds: { minX: 32, maxX: 44, minY: 0, maxY: 6, minZ: 2, maxZ: 14 } },
+  { id: 'office-4', name: 'Sala de Juegos', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 24, maxZ: 36 } },
+  { id: 'office-5', name: 'Lounge', bounds: { minX: 17, maxX: 29, minY: 0, maxY: 6, minZ: 24, maxZ: 36 } },
+];

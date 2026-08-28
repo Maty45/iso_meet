@@ -13,6 +13,8 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 type CachedGLTF = {
   scene: THREE.Group;
   def: AssetDef;
+  // Los clips se comparten entre instancias; lo que es por instancia es el AnimationMixer.
+  animations: THREE.AnimationClip[];
 };
 
 export class AssetManager {
@@ -53,7 +55,7 @@ export class AssetManager {
     // hit cache → clone
     const cached = this.cache.get(url);
     if (cached) {
-      return this.instantiate(cached.scene, cached.def);
+      return this.instantiate(cached.scene, cached.def, cached.animations);
     }
 
     // inflight coalescing
@@ -63,7 +65,7 @@ export class AssetManager {
       // scene ya es un clone, pero necesitamos otro clone para el caller
       // por eso cache guarda el original y clonamos aquí
       const original = this.cache.get(url);
-      if (original) return this.instantiate(original.scene, original.def);
+      if (original) return this.instantiate(original.scene, original.def, original.animations);
       return this.instantiate(scene, def);
     }
 
@@ -80,10 +82,12 @@ export class AssetManager {
   private async fetchAndCache(url: string, def: AssetDef): Promise<THREE.Group> {
     try {
       let scene: THREE.Group;
+      let animations: THREE.AnimationClip[] = [];
       const lower = url.toLowerCase();
       if (lower.endsWith('.fbx')) {
         const fbx = await this.fbxLoader.loadAsync(url);
         scene = fbx as unknown as THREE.Group;
+        animations = fbx.animations ?? [];
         scene.rotation.x = 0;
       } else if (lower.endsWith('.obj')) {
         // Intenta cargar MTL si existe (mismo nombre .mtl)
@@ -101,11 +105,12 @@ export class AssetManager {
       } else {
         const gltf = await this.gltfLoader.loadAsync(url);
         scene = (gltf.scene as THREE.Group) ?? new THREE.Group();
+        animations = gltf.animations ?? [];
       }
       this.prepareScene(scene);
-      this.cache.set(url, { scene, def });
+      this.cache.set(url, { scene, def, animations });
       this.loadCount.set(url, (this.loadCount.get(url) ?? 0) + 1);
-      return this.instantiate(scene, def);
+      return this.instantiate(scene, def, animations);
     } catch (err) {
       console.error(`[AssetManager] fallo cargando ${url}:`, err);
       // no cachear error, permitir reintento
@@ -113,7 +118,11 @@ export class AssetManager {
     }
   }
 
-  private instantiate(original: THREE.Group, def: AssetDef): THREE.Group {
+  private instantiate(
+    original: THREE.Group,
+    def: AssetDef,
+    animations: THREE.AnimationClip[] = [],
+  ): THREE.Group {
     // Clone correcto: SkeletonUtils.clone maneja SkinnedMesh/esqueleto; fallback a clone(true)
     let cloned: THREE.Group;
     try {
@@ -144,6 +153,7 @@ export class AssetManager {
       }
     });
 
+    cloned.userData.animations = animations;
     cloned.userData.assetDef = def;
     cloned.userData.assetKey = def.label ?? def.url;
     return cloned;

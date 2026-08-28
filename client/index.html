@@ -17,9 +17,13 @@
       <span id="player-count"></span>
     </div>
     <div id="hud-bottom">
-      <span>WASD — Moverse · Espacio — Saltar · Rueda — Zoom</span>
+      <div id="meet-prompt" class="hidden"><kbd>E</kbd> Entrar a la reunión</div>
+      <span id="hud-controls">WASD — Moverse · Shift — Correr · Espacio — Saltar · Rueda — Zoom</span>
     </div>
   </div>
+
+  <!-- Minimapa -->
+  <canvas id="minimap" width="192" height="160"></canvas>
 
   <!-- Join screen -->
   <div id="join-screen" class="overlay">

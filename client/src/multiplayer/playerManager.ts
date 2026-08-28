@@ -15,6 +15,7 @@ export class RemotePlayer {
   get group() { return this.visual.group; }
   buffer: BufferedState[] = [];
   anim: Player['animationState'] = 'idle';
+  private lastUpdate = 0;
 
   constructor(p: Player) {
     this.id = p.id;
@@ -72,13 +73,16 @@ export class RemotePlayer {
     let d = b.rotation - a.rotation;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     const rot = a.rotation + d * t;
-    const moving = a.anim === 'walk' || b.anim === 'walk';
+    const anim = b.anim ?? a.anim;
     this.visual.setPosition(pos);
     this.visual.setRotationY(rot);
-    // bob via visual
-    this.visual.update(0.016, { moving, onGround: true });
-    // corrige y con bob
-    if (moving) this.visual.group.position.y = pos.y + Math.sin(now * 0.01) * 0.04;
+    // El clip lo decide el animationState que ya viaja por la red (no un bob local).
+    this.visual.setAnimation(anim);
+    this.visual.update((now - this.lastUpdate) / 1000 || 0.016, {
+      moving: anim === 'walk' || anim === 'sprint',
+      onGround: anim !== 'jump',
+    });
+    this.lastUpdate = now;
   }
 
   dispose(scene: THREE.Scene) {

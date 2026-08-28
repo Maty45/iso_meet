@@ -9,6 +9,8 @@ export const BLOCK_COLORS: Record<BlockType, number> = {
   air: 0x000000,
   wall_pink: 0xe8a0bf,
   wall_purple: 0x9b8ec4,
+  wall_teal: 0x7fc8c0,
+  trim: 0x6d4c41, // marco de puerta
   desk: 0xf5e6a3,
   monitor: 0x2c3e50,
   plant: 0x2ecc71,
@@ -24,6 +26,8 @@ export const BLOCK_SOLID: Record<BlockType, boolean> = {
   air: false,
   wall_pink: true,
   wall_purple: true,
+  wall_teal: true,
+  trim: true,
   desk: true,
   monitor: false,
   plant: false,

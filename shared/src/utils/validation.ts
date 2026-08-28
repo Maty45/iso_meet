@@ -18,7 +18,7 @@ export const joinSchema = z.object({ name: playerNameSchema });
 export const moveSchema = z.object({
   position: vec3Schema,
   rotation: z.number().finite(),
-  animationState: z.enum(['idle', 'walk', 'jump']),
+  animationState: z.enum(['idle', 'walk', 'sprint', 'jump']),
 });
 
 export const officeIdSchema = z.object({ officeId: z.string().min(1).max(64) });
