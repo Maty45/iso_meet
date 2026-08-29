@@ -46,6 +46,10 @@ export function loadOffices(): Office[] {
       // Genera códigos efímeros hasta que el server se cierre (no persiste a disco)
       const seen = new Set<string>();
       for (const office of valid) {
+        // Los links reales de Meet son credenciales: quien tenga la URL entra a la reunion.
+        // Van por env (MEET_URL_OFFICE_1), nunca en offices.json, que si esta trackeado.
+        const fromEnv = process.env[`MEET_URL_${office.id.toUpperCase().replace(/-/g, '_')}`];
+        if (fromEnv) office.meetingUrl = fromEnv;
         if (isPlaceholderMeetUrl(office.meetingUrl)) {
           let code: string;
           do { code = generateMeetCode(); } while (seen.has(code));
