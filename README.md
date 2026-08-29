@@ -4,7 +4,7 @@
 
 Vista isométrica fija (OrthographicCamera), mundo voxel 60×48 con pasillo central, 5 salas de 16×16, avatares animados, multiplayer Socket.IO y Google Meet por sala.
 
-> Plan técnico completo en [`PLAN.md`](./PLAN.md). Basado en análisis de `souramoo/party` y requisitos de `instrucciones.txt`.
+> Plan técnico completo en [`PLAN.md`](./PLAN.md).
 
 ## Requisitos
 
@@ -32,6 +32,7 @@ Variables (opcional):
 cp .env.example .env
 # VITE_SERVER_URL=http://localhost:3000  (client)
 # PORT=3000  FRONTEND_URL=http://localhost:5173  (server)
+# MEET_URL_OFFICE_1=https://meet.google.com/abc-defg-hij  (link real de una sala)
 ```
 
 ## Criterios MVP
@@ -39,7 +40,7 @@ cp .env.example .env
 - [x] Vista isométrica ortográfica, zoom rueda
 - [x] Mundo 60×48 bloques + paredes + 5 salas con puerta al pasillo central
 - [x] Avatar animado (idle/walk/sprint) + WASD isométrico + colisiones AABB + salto con coyote time
-- [x] 5 salas con Meet URL configurable (`config/offices.json`)
+- [x] 5 salas con Meet URL configurable (`config/offices.json` + override por env)
 - [x] Detección entrada/salida + panel de sala + **E** en la mesa para abrir el Meet
 - [x] Minimapa con las salas y los jugadores
 - [x] Multiplayer 20Hz + interpolación + nombres + colores
@@ -54,12 +55,22 @@ cp .env.example .env
 
 Agregar una sala es agregar una entrada a `config/offices.json`: las paredes, la puerta al
 pasillo, el color, el cartel, la luz y los muebles salen solos de sus `bounds`.
-Las salas van arriba (`maxZ < 15`) o abajo (`minZ > 23`) del pasillo central.
+Las salas van arriba (`maxZ < 19`) o abajo (`minZ > 27`) del pasillo central,
+que ocupa `z 19..27` (`CORRIDOR_Z` en `shared/src/constants.ts`).
 
 ```json
 { "id":"office-1","name":"Sala Dev","bounds":{...},"meetingUrl":"https://meet.google.com/...","spawnPoint":{...} }
 ```
-`meetingUrl` debe ser `https://meet.google.com/...` (validado).
+Dejá `meetingUrl` en `https://meet.google.com/new`: el server le genera un código efímero
+al arrancar. **Un link real de Meet es una credencial** — cualquiera que lo tenga entra a la
+reunión — y `config/offices.json` está trackeado en git. Los links reales van por env,
+que nunca se commitea:
+
+```bash
+MEET_URL_OFFICE_1=https://meet.google.com/abc-defg-hij
+```
+
+El nombre de la variable es `MEET_URL_` + el `id` de la sala en mayúsculas con `_`.
 
 ## Deployment gratuito
 
@@ -86,4 +97,4 @@ Vite + TypeScript + Three.js + Socket.IO v4 + Express + Zod + Biome
 
 ## Roadmap
 
-V2 chat/emojis/skins, V3 WebRTC propio, V4 auth/DB, V5 multi-mundo.
+V2 chat/emojis y elegir skin al entrar (hoy es random), V3 WebRTC propio, V4 auth/DB, V5 multi-mundo.
