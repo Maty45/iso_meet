@@ -2,7 +2,7 @@
 
 **Minecraft isométrico + oficina virtual + Google Meet** · MVP funcional.
 
-Vista isométrica fija (OrthographicCamera), mundo voxel 48×40 con pasillo central, 5 salas, avatares animados, multiplayer Socket.IO y Google Meet por sala.
+Vista isométrica fija (OrthographicCamera), mundo voxel 60×48 con pasillo central, 5 salas de 16×16, avatares animados, multiplayer Socket.IO y Google Meet por sala.
 
 > Plan técnico completo en [`PLAN.md`](./PLAN.md). Basado en análisis de `souramoo/party` y requisitos de `instrucciones.txt`.
 
@@ -37,7 +37,7 @@ cp .env.example .env
 ## Criterios MVP
 
 - [x] Vista isométrica ortográfica, zoom rueda
-- [x] Mundo 48×40 bloques + paredes + 5 salas con puerta al pasillo central
+- [x] Mundo 60×48 bloques + paredes + 5 salas con puerta al pasillo central
 - [x] Avatar animado (idle/walk/sprint) + WASD isométrico + colisiones AABB + salto con coyote time
 - [x] 5 salas con Meet URL configurable (`config/offices.json`)
 - [x] Detección entrada/salida + panel de sala + **E** en la mesa para abrir el Meet
@@ -70,8 +70,13 @@ Ver `PLAN.md` §15 para detalles y limitaciones WebSocket.
 
 ## Assets
 
-Modelos 3D del [Furniture Kit de Kenney](https://kenney.nl/assets/furniture-kit) (CC0).
-Están en `client/public/models/` — `kenney/LICENSE.txt` tiene la licencia.
+Modelos 3D en `client/public/models/`, todos CC0 (cada carpeta tiene su `LICENSE.txt`):
+
+- `kenney/` y `furniture/` — [Furniture Kit de Kenney](https://kenney.nl/assets/furniture-kit)
+- `characters/` — [Blocky Characters de Kenney](https://kenney.nl/assets/blocky-characters): 18
+  personajes con el mismo rig y 27 animaciones. El server sortea uno en cada ingreso.
+- `polyhaven/` — [Poly Haven](https://polyhaven.com), PBR fotorrealista. **Piloto**: se usan solo
+  en el Lounge para comparar estilos contra el resto de las salas.
 Para sumar un mueble: copiar el `.glb` ahí y agregar una línea en
 `client/src/assets/catalog.ts`; el test `catalog.test.ts` verifica que el archivo exista.
 

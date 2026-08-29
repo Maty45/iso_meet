@@ -8,6 +8,7 @@ export class Player implements PlayerType {
   id: string;
   name: string;
   color: number;
+  skin: string;
   position: Vec3;
   rotation: number;
   animationState: AnimationState = 'idle';
@@ -19,10 +20,11 @@ export class Player implements PlayerType {
   moveCountSec = 0;
   moveWindowStart = Date.now();
 
-  constructor(id: string, name: string, color: number, pos: Vec3) {
+  constructor(id: string, name: string, color: number, skin: string, pos: Vec3) {
     this.id = id;
     this.name = name;
     this.color = color;
+    this.skin = skin;
     this.position = { ...pos };
     this.rotation = 0;
   }

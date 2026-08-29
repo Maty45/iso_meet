@@ -1,6 +1,8 @@
 import type { AnimationState } from '@iso-meet/shared';
+import { DEFAULT_SKIN } from '@iso-meet/shared';
 import * as THREE from 'three';
 import { assetManager } from '../assets/AssetManager.js';
+import { Animator } from './Animator.js';
 import { createAvatar, createNametag } from './avatar.js';
 
 // Nombres reales de los clips dentro de player.glb (Kenney Mini Characters).
@@ -17,6 +19,8 @@ export interface PlayerVisualOptions {
   color: number;
   position: THREE.Vector3;
   rotationY?: number;
+  /** Id del personaje (ver SKINS). La sortea el server; si falta, cae al de siempre. */
+  skin?: string;
 }
 
 // Separa STATE (posición/rotación de red) de VISUAL (modelo 3D + nametag)
@@ -25,8 +29,7 @@ export class PlayerVisual {
   group = new THREE.Group();
   private modelGroup: THREE.Group | null = null;
   private nametag: THREE.Sprite | null = null;
-  private mixer: THREE.AnimationMixer | null = null;
-  private actions = new Map<string, THREE.AnimationAction>();
+  private animator: Animator | null = null;
   private current: AnimationState = 'idle';
   private baseColor: number;
 
@@ -46,12 +49,12 @@ export class PlayerVisual {
 
     // Carga async del GLB low-poly (Kenney Blocky Characters CC0)
     // Si no existe, mantiene placeholder
-    this.loadModel(opts.name, opts.color);
+    this.loadModel(opts.skin ?? DEFAULT_SKIN);
   }
 
-  private async loadModel(name: string, color: number) {
+  private async loadModel(skin: string) {
     try {
-      const glb = await assetManager.load('player');
+      const glb = await assetManager.load(skin);
       if (glb.userData.isPlaceholder) {
         // No hay GLB — mantiene cajas
         return;
@@ -93,18 +96,10 @@ export class PlayerVisual {
       // estado que usamos y se cruzan con crossFade; sin esto el personaje se desliza.
       const clips: THREE.AnimationClip[] = glb.userData.animations ?? [];
       if (clips.length > 0) {
-        this.mixer = new THREE.AnimationMixer(glb);
-        for (const state of Object.keys(CLIP_FOR) as AnimationState[]) {
-          const clip = THREE.AnimationClip.findByName(clips, CLIP_FOR[state]);
-          if (!clip) continue;
-          const action = this.mixer.clipAction(clip);
-          action.play();
-          action.setEffectiveWeight(state === this.current ? 1 : 0);
-          this.actions.set(state, action);
-        }
+        this.animator = new Animator(glb, clips, CLIP_FOR, this.current);
       }
     } catch (e) {
-      console.warn('[PlayerVisual] fallo cargando player.glb, manteniendo placeholder cajas', e);
+      console.warn(`[PlayerVisual] fallo cargando la skin ${skin}, queda el placeholder`, e);
     }
   }
 
@@ -130,20 +125,14 @@ export class PlayerVisual {
 
   /** Cruza a la animación del estado dado. No-op si ya está en ese estado. */
   setAnimation(state: AnimationState) {
-    if (state === this.current) return;
-    const next = this.actions.get(state);
-    const prev = this.actions.get(this.current);
     this.current = state;
-    if (!next) return;
-    next.enabled = true;
-    next.setEffectiveTimeScale(1);
-    if (prev && prev !== next) next.crossFadeFrom(prev, FADE, false);
-    else next.setEffectiveWeight(1);
+    this.animator?.play(state, FADE);
   }
 
-  update(delta: number, opts: { moving: boolean; onGround: boolean }) {
-    if (this.mixer) {
-      this.mixer.update(delta);
+  /** @param opts.speed velocidad horizontal real, para que el ciclo de pasos no patine */
+  update(delta: number, opts: { moving: boolean; onGround: boolean; speed?: number }) {
+    if (this.animator) {
+      this.animator.update(delta, opts.speed ?? 0);
       return;
     }
     // Sin clips (fallback de cajas): bob manual para que no se deslice inerte.
@@ -159,7 +148,7 @@ export class PlayerVisual {
 
   dispose(scene: THREE.Scene) {
     scene.remove(this.group);
-    if (this.mixer) this.mixer.stopAllAction();
+    this.animator?.stop();
   }
 
   // Para debug: fuerza color

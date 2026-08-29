@@ -1,5 +1,5 @@
-import type { Player } from '@iso-meet/shared';
-import { WORLD_SIZE, sanitizeName } from '@iso-meet/shared';
+import type { Bounds, Player } from '@iso-meet/shared';
+import { WORLD_SIZE, randomSkin, sanitizeName } from '@iso-meet/shared';
 import * as THREE from 'three';
 import { createSocket } from './multiplayer/network.js';
 import { PlayerManager } from './multiplayer/playerManager.js';
@@ -82,8 +82,9 @@ function rebuildOfficeLights(offices: { bounds: { minX: number; maxX: number; mi
 }
 
 // FASE 8: preload de los 5 assets más usados (no bloquea, cachea para 20 sillas = 1 fetch)
+// El personaje no se precarga: la skin la decide el server al entrar.
 assetManager
-  .preload(['chair_office', 'desk_office', 'monitor', 'keyboard', 'plant_big', 'rug_square', 'lamp_ceiling', 'credenza', 'player'])
+  .preload(['chair_office', 'desk_office', 'monitor', 'keyboard', 'plant_big', 'rug_square', 'lamp_ceiling', 'credenza'])
   .catch(() => {});
 
 // world (se crea tras join o fallback offline)
@@ -102,7 +103,6 @@ let myColor = 0x4a90e2;
 // multiplayer
 const socket = createSocket();
 const playerMgr = new PlayerManager(scene);
-const officePresence = new Map<string, string | null>(); // playerId -> officeId
 
 let joined = false;
 let lastSend = 0;
@@ -124,15 +124,31 @@ function spawnLocal(p: Player) {
   localPlayer = p;
   physics.pos.set(p.position.x, p.position.y, p.position.z);
   myColor = p.color;
-  localVisual = new PlayerVisual({ name: p.name, color: p.color, position: physics.pos.clone() });
+  localVisual = new PlayerVisual({
+    name: p.name,
+    color: p.color,
+    position: physics.pos.clone(),
+    skin: p.skin,
+  });
   scene.add(localVisual.group);
   playerCountEl.textContent = `👥 ${1 + playerMgr.remotes.size}`;
 }
 
+// La ocupacion se deriva de las posiciones que ya tenemos de cada jugador, no de un
+// handshake de eventos: el server descarta 'player:officeEnter' si su ultima posicion
+// conocida (20Hz) todavia esta afuera, y ese enter se perdia para siempre.
+function countOccupants(office: { bounds: Bounds }): number {
+  let n = officeMgr.isInside(physics.pos, office.bounds) ? 1 : 0;
+  for (const rp of playerMgr.remotes.values())
+    if (officeMgr.isInside(rp.group.position, office.bounds)) n++;
+  return n;
+}
+
 // office UI helpers
+const occupantsLabel = (n: number) => `👥 ${n} persona(s) aquí`;
 function showOfficePanel(office: any, count: number) {
   officeNameEl.textContent = office.name;
-  officeOccupantsEl.textContent = `👥 ${count} persona(s) aquí`;
+  officeOccupantsEl.textContent = occupantsLabel(count);
   // @ts-ignore dataset
   btnMeet.dataset.url = office.meetingUrl;
   officePanel.classList.remove('hidden');
@@ -164,7 +180,7 @@ function openMeet(url: string) {
 btnMeet.addEventListener('click', () => openMeet((btnMeet as any).dataset.url as string));
 
 // E parado en la mesa de reuniones abre el Meet de esa sala.
-const MEET_REACH = 2.4;
+const MEET_REACH = 3.4; // la mesa central creció con las salas de 16×16
 const meetPrompt = document.getElementById('meet-prompt') as HTMLDivElement;
 let meetInReach: string | null = null;
 input.onInteract(() => {
@@ -213,36 +229,25 @@ socket.on('player:joined' as any, (data: any) => {
   worldConfig.offices = offices;
   createWorld(worldConfig);
   spawnLocal(data.player);
-  officePresence.set(data.player.id, data.player.currentOfficeId ?? null);
   for (const p of data.players as Player[]) {
     if (p.id === data.player.id) continue;
     playerMgr.add(p);
-    officePresence.set(p.id, p.currentOfficeId ?? null);
   }
   playerCountEl.textContent = `👥 ${1 + playerMgr.remotes.size}`;
 });
 
 socket.on('player:joinedOther' as any, (data: any) => {
   playerMgr.add(data.player);
-  officePresence.set(data.player.id, data.player.currentOfficeId ?? null);
   playerCountEl.textContent = `👥 ${playerMgr.remotes.size + (joined ? 1 : 0)}`;
 });
 
 socket.on('player:left' as any, ({ playerId }: any) => {
   playerMgr.remove(playerId);
-  officePresence.delete(playerId);
   playerCountEl.textContent = `👥 ${playerMgr.remotes.size + (joined ? 1 : 0)}`;
 });
 
 socket.on('player:moved' as any, (data: any) => {
   playerMgr.moved(data);
-});
-
-socket.on('player:officeEntered' as any, (data: any) => {
-  officePresence.set(data.playerId, data.officeId ?? null);
-});
-socket.on('player:officeExited' as any, (data: any) => {
-  officePresence.set(data.playerId, null);
 });
 
 socket.on('error' as any, ({ message }: any) => {
@@ -282,7 +287,12 @@ function tick(now: number) {
       d = Math.atan2(Math.sin(d), Math.cos(d));
       localVisual.setRotationY(cur + d * 0.2);
     }
-    localVisual.update(dt, { moving, onGround: physics.onGround });
+    // la velocidad real (no la tecla) maneja el ritmo del ciclo de pasos
+    localVisual.update(dt, {
+      moving,
+      onGround: physics.onGround,
+      speed: Math.hypot(physics.vel.x, physics.vel.z),
+    });
 
     // cámara
     cameraCtrl.update(physics.pos, dt);
@@ -295,19 +305,21 @@ function tick(now: number) {
     });
     if (entered) {
       socket.emit('player:officeEnter', { officeId: entered.id });
-      officePresence.set(localPlayer.id, entered.id);
-      let c = 0;
-      for (const oid of officePresence.values()) if (oid === entered.id) c++;
-      showOfficePanel(entered, c);
+      showOfficePanel(entered, countOccupants(entered));
     }
     if (exited) {
       socket.emit('player:officeLeave', { officeId: exited.id });
-      officePresence.set(localPlayer!.id, null);
       hideOfficePanel();
     }
 
     // Prompt de E: dentro de la sala Y parado en la mesa de reuniones.
     const current = officeMgr.getCurrent();
+    // La cuenta se refresca cada frame: antes se calculaba solo en el frame de entrada y
+    // quedaba clavada si el otro entraba despues.
+    if (current && !officePanel.classList.contains('hidden')) {
+      const txt = occupantsLabel(countOccupants(current));
+      if (officeOccupantsEl.textContent !== txt) officeOccupantsEl.textContent = txt;
+    }
     const spot = current ? world.meetingSpots.get(current.id) : undefined;
     const nearTable =
       !!spot && Math.hypot(physics.pos.x - spot.x, physics.pos.z - spot.z) < MEET_REACH;
@@ -364,6 +376,7 @@ setTimeout(() => {
         id: 'local',
         name,
         color: 0x4a90e2,
+        skin: randomSkin(),
         position: worldConfig.spawnPoints?.[0] ?? { x: 24, y: 1, z: 19 },
         rotation: 0,
         animationState: 'idle',

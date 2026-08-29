@@ -47,11 +47,4 @@ export class OfficeManager {
   getCurrent(): Office | null {
     return this.offices.find((o) => o.id === this.currentId) || null;
   }
-
-  countInOffice(
-    officeId: string,
-    players: { currentOfficeId: string | null }[],
-  ): number {
-    return players.filter((p) => p.currentOfficeId === officeId).length;
-  }
 }

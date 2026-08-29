@@ -3,22 +3,26 @@ import { join, resolve } from 'node:path';
 import type { Office } from '@iso-meet/shared';
 import { describe, expect, it } from 'vitest';
 import { assetsCatalog } from '../assets/catalog.js';
-import { isFlipped, meetingSpot, officeProps, themeFor } from './officeLayout.js';
+import { interiorHalf, isFlipped, meetingSpot, officeProps, themeFor } from './officeLayout.js';
 
 const offices: Office[] = JSON.parse(
   readFileSync(resolve(process.cwd(), '../config/offices.json'), 'utf-8'),
 ).offices;
 
-const props = (o: Office) => officeProps(themeFor(o.id), isFlipped(o.bounds));
+const props = (o: Office) =>
+  officeProps(themeFor(o.id), isFlipped(o.bounds), 0xc9ccd2, interiorHalf(o.bounds));
 
 /** Tamano real del modelo, leido del GLB (no un numero inventado en el test). */
 const sizeCache = new Map<string, [number, number, number]>();
 function modelSize(type: string): [number, number, number] {
   const cached = sizeCache.get(type);
   if (cached) return cached;
-  const buf = readFileSync(join(process.cwd(), 'public', assetsCatalog[type].url));
-  const jsonLen = buf.readUInt32LE(12);
-  const gltf = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf-8'));
+  const url = assetsCatalog[type].url;
+  const buf = readFileSync(join(process.cwd(), 'public', url));
+  // .glb trae el JSON dentro de un contenedor binario; .gltf ya es JSON
+  const gltf = url.endsWith('.gltf')
+    ? JSON.parse(buf.toString('utf-8'))
+    : JSON.parse(buf.subarray(20, 20 + buf.readUInt32LE(12)).toString('utf-8'));
   const mn = [Infinity, Infinity, Infinity];
   const mx = [-Infinity, -Infinity, -Infinity];
   for (const mesh of gltf.meshes ?? []) {

@@ -15,6 +15,7 @@ import {
   joinSchema,
   moveSchema,
   officeIdSchema,
+  randomSkin,
   sanitizeName,
 } from '@iso-meet/shared';
 import cors from 'cors';
@@ -134,26 +135,33 @@ io.on('connection', (socket) => {
     }
     const name = sanitizeName(parsed.data.name);
     const color = COLORS[colorIdx++ % COLORS.length];
+    // La skin la sortea el server, no el cliente: así todos ven el mismo personaje.
+    const skin = randomSkin();
     const spawn = worldConfig.spawnPoints[0] ?? { x: 20, y: 1, z: 20 };
     const pos = {
       x: spawn.x + (Math.random() - 0.5) * 2,
       y: spawn.y,
       z: spawn.z + (Math.random() - 0.5) * 2,
     };
-    const p = new Player(socket.id, name, color, pos);
+    const p = new Player(socket.id, name, color, skin, pos);
     room.players.set(socket.id, p);
     (socket.data as unknown as { playerId: string }).playerId = socket.id;
 
-    const players = Array.from(room.players.values()).map((pl) => ({
-      id: pl.id,
-      name: pl.name,
-      color: pl.color,
-      position: pl.position,
-      rotation: pl.rotation,
-      animationState: pl.animationState,
-      currentOfficeId: pl.currentOfficeId,
-      inMeeting: pl.inMeeting,
-    })) as PlayerType[];
+    // Tipado explícito y sin cast: si se agrega un campo a Player y se olvida acá,
+    // esto no compila. Con `as PlayerType[]` el campo se perdía en silencio.
+    const players = Array.from(room.players.values()).map(
+      (pl): PlayerType => ({
+        id: pl.id,
+        name: pl.name,
+        color: pl.color,
+        skin: pl.skin,
+        position: pl.position,
+        rotation: pl.rotation,
+        animationState: pl.animationState,
+        currentOfficeId: pl.currentOfficeId,
+        inMeeting: pl.inMeeting,
+      }),
+    );
 
     socket.emit('player:joined', {
       player: players.find((x) => x.id === socket.id)!,

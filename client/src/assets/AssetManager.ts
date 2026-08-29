@@ -165,13 +165,15 @@ export class AssetManager {
         const mesh = obj as THREE.Mesh;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
-        // Corrección estética: evita brillo excesivo (mantener mate/cartoon)
+        // Corrección estética: evita brillo excesivo en los modelos de color plano
+        // (Kenney). Los texturados traen su propio PBR calibrado — aplanarles el
+        // roughness les borra justo lo que los hace ver bien.
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material as THREE.Material];
         for (const m of mats) {
-          if (m && (m as any).roughness !== undefined) {
-            (m as any).roughness = Math.max((m as any).roughness ?? 0.8, 0.75);
-            if ((m as any).metalness !== undefined) (m as any).metalness = Math.min((m as any).metalness ?? 0, 0.1);
-          }
+          const mat = m as THREE.MeshStandardMaterial;
+          if (!mat || mat.roughness === undefined || mat.map) continue;
+          mat.roughness = Math.max(mat.roughness ?? 0.8, 0.75);
+          if (mat.metalness !== undefined) mat.metalness = Math.min(mat.metalness ?? 0, 0.1);
         }
       }
     });

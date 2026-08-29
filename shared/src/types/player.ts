@@ -6,6 +6,8 @@ export interface Player {
   id: string;
   name: string;
   color: number;
+  /** Id del modelo del personaje (ver SKINS). Lo sortea el server al entrar. */
+  skin: string;
   position: Vec3;
   rotation: number;
   animationState: AnimationState;

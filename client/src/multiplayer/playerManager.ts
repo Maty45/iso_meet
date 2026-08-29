@@ -24,6 +24,7 @@ export class RemotePlayer {
       color: p.color,
       position: new THREE.Vector3(p.position.x, p.position.y, p.position.z),
       rotationY: p.rotation,
+      skin: p.skin,
     });
     if (p.inMeeting) this.setMeeting(true);
   }
@@ -74,15 +75,20 @@ export class RemotePlayer {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     const rot = a.rotation + d * t;
     const anim = b.anim ?? a.anim;
+    // velocidad real del remoto: sale de cuánto se movió entre los dos estados interpolados
+    const speed = (a.position.distanceTo(b.position) / span) * 1000;
     this.visual.setPosition(pos);
     this.visual.setRotationY(rot);
     // El clip lo decide el animationState que ya viaja por la red (no un bob local).
     this.visual.setAnimation(anim);
-    this.visual.update((now - this.lastUpdate) / 1000 || 0.016, {
+    // primer frame: lastUpdate es 0 y now son milisegundos desde 1970, no un delta
+    const dt = this.lastUpdate ? Math.min(0.1, (now - this.lastUpdate) / 1000) : 0.016;
+    this.lastUpdate = now;
+    this.visual.update(dt, {
       moving: anim === 'walk' || anim === 'sprint',
       onGround: anim !== 'jump',
+      speed,
     });
-    this.lastUpdate = now;
   }
 
   dispose(scene: THREE.Scene) {
@@ -130,14 +136,5 @@ export class PlayerManager {
   setMeeting(playerId: string, inMeeting: boolean) {
     const rp = this.remotes.get(playerId);
     if (rp) rp.setMeeting(inMeeting);
-  }
-
-  countInOffice(
-    officeId: string,
-    getOfficeId: (id: string) => string | null,
-  ): number {
-    let n = 0;
-    for (const [id] of this.remotes) if (getOfficeId(id) === officeId) n++;
-    return n;
   }
 }

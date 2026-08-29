@@ -5,7 +5,7 @@ import { BLOCK_COLORS } from './blocks.js';
 import { isSolid } from './blocks.js';
 import { createWorldObjectSync } from '../entities/WorldObject.js';
 import { assetsCatalog } from '../assets/catalog.js';
-import { isFlipped, meetingSpot, officeProps, themeFor } from './officeLayout.js';
+import { interiorHalf, isFlipped, meetingSpot, officeProps, themeFor } from './officeLayout.js';
 import { createNametag } from '../player/avatar.js';
 
 /** Cota superior del bloque de piso: todo mueble se apoya acá. */
@@ -186,7 +186,8 @@ export class World {
       const accent = accentOf(BLOCK_COLORS[wallTypeOf[office.id] ?? 'wall_pink']);
       this.meetingSpots.set(office.id, new THREE.Vector3(c.x, FLOOR_Y, c.z));
       const flip = isFlipped(office.bounds);
-      for (const p of officeProps(themeFor(office.id), flip, accent)) {
+      const half = interiorHalf(office.bounds);
+      for (const p of officeProps(themeFor(office.id), flip, accent, half)) {
         addHybrid(
           p.type,
           c.x + p.dx,
@@ -271,11 +272,11 @@ export function createDefaultWorldConfig(): WorldConfig {
 
 // Espejo de config/offices.json para el modo offline (el server es la fuente real).
 const OFFLINE_OFFICES = [
-  { id: 'office-1', name: 'Sala de Desarrollo', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 2, maxZ: 14 } },
-  { id: 'office-2', name: 'Sala de Diseño', bounds: { minX: 17, maxX: 29, minY: 0, maxY: 6, minZ: 2, maxZ: 14 } },
-  { id: 'office-3', name: 'Sala de Reuniones', bounds: { minX: 32, maxX: 44, minY: 0, maxY: 6, minZ: 2, maxZ: 14 } },
-  { id: 'office-4', name: 'Sala de Juegos', bounds: { minX: 2, maxX: 14, minY: 0, maxY: 6, minZ: 24, maxZ: 36 } },
-  { id: 'office-5', name: 'Lounge', bounds: { minX: 17, maxX: 29, minY: 0, maxY: 6, minZ: 24, maxZ: 36 } },
+  { id: 'office-1', name: 'Sala de Desarrollo', bounds: { minX: 2, maxX: 18, minY: 0, maxY: 6, minZ: 2, maxZ: 18 } },
+  { id: 'office-2', name: 'Sala de Diseño', bounds: { minX: 21, maxX: 37, minY: 0, maxY: 6, minZ: 2, maxZ: 18 } },
+  { id: 'office-3', name: 'Sala de Reuniones', bounds: { minX: 40, maxX: 56, minY: 0, maxY: 6, minZ: 2, maxZ: 18 } },
+  { id: 'office-4', name: 'Sala de Juegos', bounds: { minX: 2, maxX: 18, minY: 0, maxY: 6, minZ: 28, maxZ: 44 } },
+  { id: 'office-5', name: 'Lounge', bounds: { minX: 21, maxX: 37, minY: 0, maxY: 6, minZ: 28, maxZ: 44 } },
 ];
 
 /**
